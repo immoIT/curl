@@ -1,3 +1,4 @@
+
 // --- Theme Toggle Logic ---
 const toggle = document.getElementById('darkModeToggle');
 const themeIcon = document.getElementById('themeIcon');
@@ -154,6 +155,16 @@ function updateDownloadUI(data) {
     const bar = el.querySelector('.progress-bar');
     bar.style.width = `${data.percentage}%`;
     
+    // Upload State Handling
+    if (data.speed && data.speed.includes("Uploading")) {
+        bar.classList.add('progress-bar-striped', 'progress-bar-animated');
+        bar.classList.remove('bg-primary');
+        bar.classList.add('bg-info');
+    } else {
+        bar.classList.remove('bg-info');
+        bar.classList.add('bg-primary');
+    }
+    
     el.querySelector('.filename').innerText = data.filename;
     el.querySelector('.percent').innerText = `${data.percentage.toFixed(1)}%`;
     el.querySelector('.speed').innerText = data.speed;
@@ -215,7 +226,7 @@ function handleComplete(data) {
     if (el) {
         el.classList.remove('paused');
         const bar = el.querySelector('.progress-bar');
-        bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+        bar.classList.remove('progress-bar-animated', 'progress-bar-striped', 'bg-info');
         bar.classList.add('bg-success');
         bar.style.width = '100%';
         
@@ -482,20 +493,27 @@ function loadSavedFiles() {
         } else {
             c.innerHTML = data.files.map(f => {
                 const iconClass = getFileIcon(f.name);
-                const playBtn = isPlayable(f.name) ? 
-                    `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}')" title="Play Media"><i class="bi bi-play-circle-fill fs-5"></i></button>` : '';
                 
-                // --- NEW: Google Drive Button ---
+                // --- MODIFIED PLAY BUTTON LOGIC ---
+                // If Playable, play it. Check if it's a Drive file to pass the ID.
+                const isDrive = f.storage === 'drive';
+                const playBtn = isPlayable(f.name) ? 
+                    `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')" title="Play Media"><i class="bi bi-play-circle-fill fs-5"></i></button>` : '';
+                
+                // Drive Link Button
                 const driveBtn = f.gdrive_link ? 
                     `<a href="${f.gdrive_link}" target="_blank" class="btn btn-sm btn-outline-success border-0 me-1" title="View on Drive"><i class="bi bi-google fs-5"></i></a>` : 
                     '';
+
+                // Append 'Cloud' icon if stored on Drive
+                const locationIcon = isDrive ? '<i class="bi bi-cloud-check-fill text-info ms-2" title="Stored on Drive"></i>' : '';
 
                 return `
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
                     <div class="card-body p-2 d-flex align-items-center">
                         <span class="fs-4 me-3"><i class="bi ${iconClass}"></i></span>
                         <div class="overflow-hidden me-auto">
-                            <div class="fw-bold text-truncate" title="${f.name}">${f.name}</div>
+                            <div class="fw-bold text-truncate" title="${f.name}">${f.name} ${locationIcon}</div>
                             <small class="text-muted">${formatBytes(f.size)} • ${f.date}</small>
                         </div>
                         <div class="d-flex align-items-center">
@@ -580,9 +598,18 @@ video.addEventListener('pause', () => {
     container.classList.add('paused');
 });
 
-function openPlayer(filename) {
-    const cleanName = filename;
-    const streamUrl = `/stream/${encodeURIComponent(cleanName)}`;
+// --- UPDATED OPEN PLAYER ---
+function openPlayer(filename, driveId = null) {
+    let streamUrl;
+    
+    // Determine Source
+    if (driveId) {
+        // Stream from Drive Proxy
+        streamUrl = `/stream_drive/${driveId}`;
+    } else {
+        // Stream from Local
+        streamUrl = `/stream/${encodeURIComponent(filename)}`;
+    }
     
     // Reset Menus
     audioWrapper.style.display = 'none';
@@ -591,6 +618,7 @@ function openPlayer(filename) {
     qualityList.classList.remove('show');
     
     // NATIVE HLS & HLS.js Support
+    // Note: HLS.js handles m3u8. Regular mp4/webm works with simple src.
     if (Hls.isSupported() && filename.endsWith('.m3u8')) {
         if (hlsInstance) {
             hlsInstance.destroy();
@@ -607,18 +635,17 @@ function openPlayer(filename) {
         
         hlsInstance.on(Hls.Events.AUDIO_TRACKS_UPDATED, updateAudioTrackList);
         hlsInstance.on(Hls.Events.LEVEL_SWITCHED, function(event, data) {
-             // Refresh quality list to show active quality even in Auto mode
              updateQualityList();
         });
 
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS (Safari) - No custom resolution/audio controls usually available via JS
+    } else if (video.canPlayType('application/vnd.apple.mpegurl') && filename.endsWith('.m3u8')) {
+        // Native HLS (Safari)
         video.src = streamUrl;
         video.addEventListener('loadedmetadata', function() {
             video.play().catch(e => console.log("Auto-play prevented", e));
         });
     } else {
-        // Standard
+        // Standard Video (MP4, MKV, etc) - Works for Local and Drive Proxy
         video.src = streamUrl;
         video.play().catch(e => console.log("Auto-play prevented", e));
     }
@@ -633,7 +660,6 @@ function updateAudioTrackList() {
     if (!hlsInstance) return;
     const tracks = hlsInstance.audioTracks;
     
-    // Show even if 1 track, to allow seeing what it is
     if (tracks.length < 1) { 
         audioWrapper.style.display = 'none';
         return;
@@ -677,7 +703,7 @@ function updateQualityList() {
 
     const currentLevel = hlsInstance.currentLevel; // -1 if Auto
     const autoEnabled = hlsInstance.autoLevelEnabled;
-    const actualLevelIdx = hlsInstance.loadLevel; // Currently loading level
+    const actualLevelIdx = hlsInstance.loadLevel; 
 
     // Add AUTO Option
     const autoItem = document.createElement('div');
@@ -691,12 +717,10 @@ function updateQualityList() {
     };
     qualityList.appendChild(autoItem);
 
-    // Add Manual Levels (Sorted by height usually)
+    // Add Manual Levels
     hlsInstance.levels.forEach((level, index) => {
         const item = document.createElement('div');
-        // If not auto, check if this index is selected
         const isSelected = !autoEnabled && currentLevel === index;
-        
         item.className = `track-item ${isSelected ? 'active' : ''}`;
         
         let label = `${level.height}p`;

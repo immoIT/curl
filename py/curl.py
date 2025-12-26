@@ -1,3 +1,4 @@
+
 from flask import Blueprint, request, render_template, jsonify, Response, session
 from flask_socketio import emit
 import requests
@@ -58,7 +59,6 @@ def get_gdrive_service():
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-                # Save the refreshed credentials back to token.json
                 with open(token_path, 'w') as token:
                     token.write(creds.to_json())
             except Exception as e:
@@ -79,15 +79,12 @@ def upload_file_to_drive(filepath, filename):
         file_metadata = {'name': filename}
         media = MediaFileUpload(filepath, resumable=True)
         
-        # Upload the file
         file = service.files().create(
             body=file_metadata, 
             media_body=media, 
             fields='id, webViewLink, webContentLink'
         ).execute()
         
-        # Permission handling: Make it readable by anyone with the link (Optional, removes need for login to view)
-        # remove the next 3 lines if you want the file private
         service.permissions().create(
             fileId=file.get('id'),
             body={'type': 'anyone', 'role': 'reader'}
@@ -220,13 +217,21 @@ def delete_file_route():
     data = request.get_json()
     filename = data.get('filename')
     
-    if not filename or '..' in filename or '/' in filename or '\\' in filename:
+    if not filename:
         return jsonify({'success': False, 'error': 'Invalid filename'})
     
-    path = os.path.join("downloads", filename)
+    # Check if it's in history
     global download_history
+    file_entry = next((f for f in download_history if f['name'] == filename), None)
+    
+    # Remove from history
     download_history = [f for f in download_history if f['name'] != filename]
     
+    # Remove from disk if it's a local file
+    if file_entry and file_entry.get('storage') == 'drive':
+        return jsonify({'success': True, 'message': 'Removed from history (Drive file)'})
+        
+    path = os.path.join("downloads", filename)
     try:
         if os.path.exists(path):
             os.remove(path)
@@ -275,6 +280,44 @@ def stream_file(filename):
     rv.headers.add('Content-Range', 'bytes {0}-{1}/{2}'.format(byte1, byte1 + length - 1, file_size))
     rv.headers.add('Accept-Ranges', 'bytes')
     return rv
+
+@curl_bp.route('/stream_drive/<file_id>')
+def stream_drive(file_id):
+    """
+    Proxy a Google Drive file download stream to the client.
+    Handles 'virus scan warning' for large files automatically.
+    """
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    
+    session = requests.Session()
+    # Forward Range header to allow seeking in player
+    headers = {}
+    if 'Range' in request.headers:
+        headers['Range'] = request.headers['Range']
+    
+    # Initial request
+    response = session.get(url, headers=headers, stream=True)
+    
+    # Check for large file confirmation token
+    token = None
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            token = value
+            break
+            
+    if token:
+        params = {'confirm': token, 'id': file_id}
+        response = session.get(url, headers=headers, params=params, stream=True)
+
+    # Filter out headers that might conflict with Flask/WSGI
+    excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
+    headers = [(name, value) for (name, value) in response.headers.items()
+               if name.lower() not in excluded_headers]
+
+    return Response(response.iter_content(chunk_size=1024*1024), 
+                    status=response.status_code, 
+                    headers=headers,
+                    direct_passthrough=True)
 
 # --- CONTROLLER CLASS ---
 
@@ -353,6 +396,7 @@ def download_with_smart_filename(controller, socketio_instance):
         if resume_byte_pos > 0:
             headers["Range"] = f"bytes={resume_byte_pos}-"
 
+        # --- DOWNLOADING PHASE ---
         with controller.session.get(url, headers=headers, stream=True, timeout=20) as response:
             response.raise_for_status()
 
@@ -378,10 +422,8 @@ def download_with_smart_filename(controller, socketio_instance):
                 last_emit = 0
 
                 for chunk in response.iter_content(chunk_size=1024*1024):
-                    if controller.is_cancelled:
-                        break 
-                    if controller.is_paused or controller.active_run_id != current_run_id:
-                        return
+                    if controller.is_cancelled: break 
+                    if controller.is_paused or controller.active_run_id != current_run_id: return
 
                     if chunk:
                         f.write(chunk)
@@ -422,13 +464,13 @@ def download_with_smart_filename(controller, socketio_instance):
         # --- UPLOAD TO DRIVE LOGIC ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
             
-            # 1. Notify UI that we are uploading
+            # 1. Notify UI: Transition Status
             upload_status = {
                 "download_id": download_id,
                 "filename": filename,
-                "percentage": 100,
-                "speed": "Uploading...",
-                "eta": "GDrive",
+                "percentage": 100, # Keep bar full
+                "speed": "Uploading to Drive...", # New Message
+                "eta": "Processing",
                 "downloaded": total_size,
                 "total_size": total_size
             }
@@ -440,18 +482,31 @@ def download_with_smart_filename(controller, socketio_instance):
                 gdrive_file = upload_file_to_drive(filepath, filename)
             except Exception as e:
                 print(f"Upload failed: {e}")
+                socketio_instance.emit("download_error", {
+                    "download_id": download_id, "error": f"Upload failed: {str(e)}"
+                })
+                return
 
-            # 3. Add to history
+            # 3. Add to history (Mark as Drive file)
             file_entry = {
                 'name': filename,
                 'size': total_size,
                 'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'gdrive_link': gdrive_file.get('webViewLink') if gdrive_file else None,
-                'gdrive_id': gdrive_file.get('id') if gdrive_file else None
+                'gdrive_id': gdrive_file.get('id') if gdrive_file else None,
+                'storage': 'drive' # Flag to indicate no local file
             }
             download_history.append(file_entry)
             
-            # 4. Complete
+            # 4. Cleanup Local File
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                    print(f"Deleted local file: {filepath}")
+            except Exception as e:
+                print(f"Error deleting local file: {e}")
+
+            # 5. Complete
             socketio_instance.emit("download_complete", {
                 "download_id": download_id,
                 "filename": filename
@@ -470,7 +525,7 @@ def format_speed(speed):
     elif speed < 1024**2: return f"{speed/1024:.1f} KB/s"
     else: return f"{speed/1024**2:.1f} MB/s"
 
-# --- REGISTER SOCKET EVENTS (Called by app.py) ---
+# --- REGISTER SOCKET EVENTS ---
 def register_socket_events(socketio):
     socketio.start_background_task(background_system_stats, socketio)
 
@@ -478,8 +533,7 @@ def register_socket_events(socketio):
     def handle_connect():
         if active_downloads:
             for download_id, controller in active_downloads.items():
-                if controller.is_cancelled:
-                    continue
+                if controller.is_cancelled: continue
                 if controller.last_status:
                     emit('download_progress', controller.last_status)
                 elif controller.is_paused:
@@ -490,8 +544,6 @@ def register_socket_events(socketio):
         download_id = str(uuid.uuid4())
         controller = DownloadController(download_id, data['url'], data.get('filename_mode'), data.get('custom_filename'))
         active_downloads[download_id] = controller
-        
-        # Use background task for Render/Eventlet compatibility
         socketio.start_background_task(download_with_smart_filename, controller, socketio)
         
         initial_status = {
