@@ -10,14 +10,13 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'default-dev-key-change-this'
 
 # Initialize SocketIO
-# async_mode='eventlet' is required for the background tasks to work correctly
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# Register the Blueprint
-# We use url_prefix='' so routes like /detect_filename work at the root level
+# Register the Blueprint from the curl folder
+# url_prefix='' ensures the app runs at the root domain
 app.register_blueprint(curl_bp, url_prefix='')
 
-# Pass the socketio instance to the module to register events
+# Connect the socket events from the curl module
 register_sockets(socketio)
 
 if __name__ == "__main__":

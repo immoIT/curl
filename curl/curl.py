@@ -7,13 +7,13 @@ import mimetypes
 from urllib.parse import urlparse, parse_qs, unquote
 import uuid
 from datetime import datetime
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 import re
 import psutil 
 
 # --- BLUEPRINT CONFIGURATION ---
-# static_folder='static' makes files in curl/static available at /curl/static/
-# template_folder='templates' makes files in curl/templates available to render_template
+# This tells Flask: "Look for templates and static files INSIDE the curl folder"
 curl_bp = Blueprint('curl', __name__, 
                     template_folder='templates', 
                     static_folder='static')
@@ -47,7 +47,19 @@ def background_system_stats():
             else:
                 time.sleep(5)
 
-# --- UTILS ---
+# --- DATABASE & UTILS ---
+def init_db():
+    conn = sqlite3.connect('downloads.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS downloads
+                 (id TEXT PRIMARY KEY, filename TEXT, url TEXT, 
+                  total_size INTEGER, downloaded_size INTEGER, 
+                  status TEXT, created_at TIMESTAMP)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
 def extract_filename_from_url(url):
     try:
         parsed_url = urlparse(url)
@@ -283,7 +295,6 @@ def download_with_smart_filename(controller):
 
 @curl_bp.route("/", methods=["GET"])
 def index():
-    # Because we set template_folder='templates', Flask looks in curl/templates/
     return render_template('index.html')
 
 @curl_bp.route("/health", methods=["GET"])
