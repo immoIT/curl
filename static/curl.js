@@ -485,7 +485,10 @@ function loadSavedFiles() {
                 const playBtn = isPlayable(f.name) ? 
                     `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}')" title="Play Media"><i class="bi bi-play-circle-fill fs-5"></i></button>` : '';
                 
-                // REMOVED: Download local button generated here previously.
+                // --- NEW: Google Drive Button ---
+                const driveBtn = f.gdrive_link ? 
+                    `<a href="${f.gdrive_link}" target="_blank" class="btn btn-sm btn-outline-success border-0 me-1" title="View on Drive"><i class="bi bi-google fs-5"></i></a>` : 
+                    '';
 
                 return `
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
@@ -496,6 +499,7 @@ function loadSavedFiles() {
                             <small class="text-muted">${formatBytes(f.size)} • ${f.date}</small>
                         </div>
                         <div class="d-flex align-items-center">
+                            ${driveBtn}
                             ${playBtn}
                             <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')" title="Delete File">
                                 <i class="bi bi-trash"></i>
@@ -512,6 +516,7 @@ function loadSavedFiles() {
         refreshIcon.classList.remove('rotate-anim');
     });
 }
+
 
 function deleteFile(filename) {
     showConfirm({

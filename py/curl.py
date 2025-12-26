@@ -14,6 +14,12 @@ from concurrent.futures import ThreadPoolExecutor
 import re
 import psutil 
 
+# --- GOOGLE DRIVE IMPORTS ---
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 # Define Blueprint
 curl_bp = Blueprint('curl', __name__)
 
@@ -21,6 +27,7 @@ curl_bp = Blueprint('curl', __name__)
 active_downloads = {}
 download_history = [] 
 download_executor = ThreadPoolExecutor(max_workers=10)
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 # --- DATABASE INIT ---
 def init_db():
@@ -34,6 +41,62 @@ def init_db():
     conn.close()
 
 init_db()
+
+# --- GOOGLE DRIVE UTILITIES ---
+def get_gdrive_service():
+    creds = None
+    token_path = 'token.json'
+    
+    if os.path.exists(token_path):
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        except Exception as e:
+            print(f"Error loading token.json: {e}")
+            return None
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                # Save the refreshed credentials back to token.json
+                with open(token_path, 'w') as token:
+                    token.write(creds.to_json())
+            except Exception as e:
+                print(f"Error refreshing token: {e}")
+                return None
+        else:
+            print("No valid token.json found. Please generate one locally.")
+            return None
+
+    return build('drive', 'v3', credentials=creds)
+
+def upload_file_to_drive(filepath, filename):
+    service = get_gdrive_service()
+    if not service:
+        return None
+    
+    try:
+        file_metadata = {'name': filename}
+        media = MediaFileUpload(filepath, resumable=True)
+        
+        # Upload the file
+        file = service.files().create(
+            body=file_metadata, 
+            media_body=media, 
+            fields='id, webViewLink, webContentLink'
+        ).execute()
+        
+        # Permission handling: Make it readable by anyone with the link (Optional, removes need for login to view)
+        # remove the next 3 lines if you want the file private
+        service.permissions().create(
+            fileId=file.get('id'),
+            body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
+
+        return file
+    except Exception as e:
+        print(f"GDrive Upload Error: {e}")
+        return None
 
 # --- UTILITIES ---
 
@@ -119,7 +182,6 @@ def convert_gdrive_url(share_url):
 
 @curl_bp.route("/", methods=["GET"])
 def index():
-    # Renders the renamed template
     return render_template('curl.html')
 
 @curl_bp.route("/health", methods=["GET"])
@@ -250,7 +312,6 @@ class DownloadController:
 # --- SOCKET & BACKGROUND TASK LOGIC ---
 
 def background_system_stats(socketio_instance):
-    """Emits system stats every 2 seconds"""
     while True:
         try:
             memory = psutil.virtual_memory()
@@ -358,13 +419,39 @@ def download_with_smart_filename(controller, socketio_instance):
             active_downloads.pop(download_id, None)
             return 
 
+        # --- UPLOAD TO DRIVE LOGIC ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
-            download_history.append({
+            
+            # 1. Notify UI that we are uploading
+            upload_status = {
+                "download_id": download_id,
+                "filename": filename,
+                "percentage": 100,
+                "speed": "Uploading...",
+                "eta": "GDrive",
+                "downloaded": total_size,
+                "total_size": total_size
+            }
+            socketio_instance.emit("download_progress", upload_status)
+
+            # 2. Perform Upload
+            gdrive_file = None
+            try:
+                gdrive_file = upload_file_to_drive(filepath, filename)
+            except Exception as e:
+                print(f"Upload failed: {e}")
+
+            # 3. Add to history
+            file_entry = {
                 'name': filename,
                 'size': total_size,
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M')
-            })
+                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'gdrive_link': gdrive_file.get('webViewLink') if gdrive_file else None,
+                'gdrive_id': gdrive_file.get('id') if gdrive_file else None
+            }
+            download_history.append(file_entry)
             
+            # 4. Complete
             socketio_instance.emit("download_complete", {
                 "download_id": download_id,
                 "filename": filename
@@ -385,12 +472,6 @@ def format_speed(speed):
 
 # --- REGISTER SOCKET EVENTS (Called by app.py) ---
 def register_socket_events(socketio):
-    """
-    Since Blueprints don't own SocketIO, we use this function to 
-    register events from the main app instance.
-    """
-    
-    # Start background task
     socketio.start_background_task(background_system_stats, socketio)
 
     @socketio.on('connect')
@@ -410,8 +491,8 @@ def register_socket_events(socketio):
         controller = DownloadController(download_id, data['url'], data.get('filename_mode'), data.get('custom_filename'))
         active_downloads[download_id] = controller
         
-        # Pass socketio instance to the thread function
-        download_executor.submit(download_with_smart_filename, controller, socketio)
+        # Use background task for Render/Eventlet compatibility
+        socketio.start_background_task(download_with_smart_filename, controller, socketio)
         
         initial_status = {
             'download_id': download_id,
@@ -442,7 +523,7 @@ def register_socket_events(socketio):
             if controller.is_paused:
                 controller.is_paused = False
                 controller.active_run_id = str(uuid.uuid4())
-                download_executor.submit(download_with_smart_filename, controller, socketio)
+                socketio.start_background_task(download_with_smart_filename, controller, socketio)
 
     @socketio.on('cancel_download')
     def handle_cancel(data):
