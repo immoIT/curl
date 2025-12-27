@@ -74,6 +74,7 @@ def srt_to_vtt(srt_content):
     """Converts SRT content to WebVTT format for browser player."""
     try:
         text = srt_content.decode('utf-8', errors='ignore').replace('\r\n', '\n')
+        # Regex to convert 00:00:00,000 -> 00:00:00.000
         text = re.sub(r'(\d{2}:\d{2}:\d{2}),(\d{3})', r'\1.\2', text)
         return "WEBVTT\n\n" + text
     except Exception as e:
@@ -216,6 +217,50 @@ def delete_file_route():
     except: pass
     
     return jsonify({'success': True})
+
+# --- SUBTITLE ROUTES (NEW) ---
+
+@curl_bp.route("/upload_sub", methods=["POST"])
+def upload_sub():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file part'})
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No selected file'})
+    
+    if file:
+        filename = re.sub(r'[<>:"/\\|?*]', '_', file.filename)
+        save_path = os.path.join("downloads", filename)
+        
+        # 1. Save locally first
+        os.makedirs("downloads", exist_ok=True)
+        file.save(save_path)
+        
+        # 2. Upload to Drive (required for streaming ID)
+        try:
+            drive_file = upload_file_to_drive(save_path, filename)
+            
+            # 3. Clean up local file
+            if os.path.exists(save_path):
+                os.remove(save_path)
+
+            if drive_file:
+                return jsonify({
+                    'success': True, 
+                    'name': filename, 
+                    'file_id': drive_file.get('id')
+                })
+            else:
+                return jsonify({'success': False, 'error': 'Drive upload failed'})
+        except Exception as e:
+            if os.path.exists(save_path): os.remove(save_path)
+            return jsonify({'success': False, 'error': str(e)})
+
+@curl_bp.route("/get_subs", methods=["GET"])
+def get_subs():
+    # Placeholder for fetching existing subs if needed.
+    # Returns empty list to prevent frontend errors.
+    return jsonify([])
 
 # --- STREAMING ROUTES (KEY LOGIC) ---
 
