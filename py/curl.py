@@ -9,7 +9,8 @@ import mimetypes
 import psutil 
 import io
 import threading
-import cv2 # NEW: OpenCV for resolution detection
+import cv2 
+import tempfile 
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
@@ -67,7 +68,7 @@ def get_file_metadata(file_id):
         if not service: return {"name": "Unknown"}
         file = service.files().get(
             fileId=file_id, 
-            fields="name, mimeType, size, videoMediaMetadata" # Request video metadata
+            fields="name, mimeType, size, videoMediaMetadata"
         ).execute()
         return file
     except Exception as e:
@@ -260,54 +261,60 @@ def upload_sub():
 def get_subs():
     return jsonify([])
 
-# --- VIDEO METADATA ROUTE (OPENCV ENHANCED) ---
+# --- VIDEO METADATA ROUTE (OPENCV HEADER PROBE) ---
 
 @curl_bp.route("/video_meta/<file_id>", methods=["GET"])
 def get_video_meta(file_id):
-    """Detects real video resolution using OpenCV and Google Drive."""
+    """Detects real video resolution using OpenCV on a chunk download."""
     creds = get_credentials()
     if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    # 1. Get a direct streaming link from Drive
     stream_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     
     try:
-        # 2. Use OpenCV to probe the stream
-        # Note: In production, consider signing the URL or using a token in URL if headers aren't supported by CV backend
-        # However, for many setups, accessing the public link (if shared) or using the token helps.
-        # Since we authenticated globally, we might need to rely on the library's ability to handle the stream or use requests to resolve redirects if necessary.
-        # Simple fallback approach:
+        # 1. Download header chunk (10MB) to temp file
+        # OpenCV fails on private URLs, so we must feed it a local file chunk
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+            with requests.get(stream_url, headers=headers, stream=True) as r:
+                for chunk in r.iter_content(chunk_size=4096):
+                    tmp_file.write(chunk)
+                    # Stop after 10MB (enough for MOOV atom)
+                    if tmp_file.tell() > 10 * 1024 * 1024: 
+                        break
         
-        cap = cv2.VideoCapture(stream_url)
-        # OpenCV might struggle with Bearer Auth in URL directly. 
-        # If this fails in your specific environment, relying on 'videoMediaMetadata' from API is the safer fallback below.
-        
+        # 2. Probe local chunk with OpenCV
+        width, height = 0, 0
+        cap = cv2.VideoCapture(tmp_path)
         if cap.isOpened():
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
-            
-            if width > 0 and height > 0:
-                return jsonify({
-                    'width': width,
-                    'height': height,
-                    'source': 'opencv'
-                })
+        
+        # 3. Clean up
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
-        # 3. Fallback to Drive API Metadata
-        meta = get_file_metadata(file_id)
-        video_meta = meta.get('videoMediaMetadata', {})
+        # 4. Fallback to API Metadata if OpenCV failed (e.g. MOOV at end)
+        if width == 0 or height == 0:
+            meta = get_file_metadata(file_id)
+            video_meta = meta.get('videoMediaMetadata', {})
+            width = video_meta.get('width', 0)
+            height = video_meta.get('height', 0)
+            source = 'metadata'
+        else:
+            source = 'opencv_probe'
+
         return jsonify({
-            'width': video_meta.get('width'),
-            'height': video_meta.get('height'),
-            'source': 'metadata'
+            'width': width,
+            'height': height,
+            'source': source
         })
 
     except Exception as e:
-        print(f"Meta Error: {e}")
-        # Final fallback
+        print(f"Meta Probe Error: {e}")
         return jsonify({'width': 0, 'height': 0, 'error': str(e)})
 
 # --- STREAMING & DOWNLOAD ROUTES ---
@@ -420,6 +427,7 @@ def download_with_smart_filename(controller, socketio_instance):
     current_run_id = controller.active_run_id
     
     try:
+        # --- DOWNLOAD PHASE ---
         if not controller.final_filename:
             try:
                 head = controller.session.head(url, timeout=10, allow_redirects=True)
@@ -483,11 +491,18 @@ def download_with_smart_filename(controller, socketio_instance):
             active_downloads.pop(download_id, None)
             return
 
+        # --- UPLOAD PHASE ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
+            
             socketio_instance.emit("download_progress", {
-                "download_id": download_id, "filename": filename, "phase": "uploading",
-                "percentage": 0, "speed": "Starting upload...", "eta": "--",
-                "downloaded": 0, "total_size": total_size
+                "download_id": download_id,
+                "filename": filename,
+                "phase": "uploading",
+                "percentage": 0,
+                "speed": "Starting upload...",
+                "eta": "--",
+                "downloaded": 0,
+                "total_size": total_size
             })
 
             upload_start_time = time.time()
@@ -499,15 +514,22 @@ def download_with_smart_filename(controller, socketio_instance):
                 if now - last_upload_emit >= 0.5:
                     progress_bytes = status.resumable_progress
                     total_bytes = status.total_size
+                    
                     elapsed = now - upload_start_time
                     up_speed = progress_bytes / max(elapsed, 0.1)
+                    
                     rem_bytes = total_bytes - progress_bytes
                     eta = format_time(rem_bytes / up_speed if up_speed > 0 else 0)
                     
                     status_payload = {
-                        "download_id": download_id, "filename": filename, "phase": "uploading",
-                        "percentage": status.progress() * 100, "speed": format_speed(up_speed),
-                        "eta": eta, "downloaded": progress_bytes, "total_size": total_bytes
+                        "download_id": download_id,
+                        "filename": filename,
+                        "phase": "uploading",
+                        "percentage": status.progress() * 100,
+                        "speed": format_speed(up_speed),
+                        "eta": eta,
+                        "downloaded": progress_bytes,
+                        "total_size": total_bytes
                     }
                     controller.last_status = status_payload
                     socketio_instance.emit("download_progress", status_payload)
@@ -515,17 +537,23 @@ def download_with_smart_filename(controller, socketio_instance):
 
             try:
                 drive_file = upload_file_to_drive(filepath, filename, progress_callback=upload_callback)
+                
                 if drive_file:
                     download_history.append({
-                        'name': filename, 'size': total_size,
+                        'name': filename,
+                        'size': total_size,
                         'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                        'gdrive_id': drive_file.get('id'), 'gdrive_link': drive_file.get('webViewLink'),
+                        'gdrive_id': drive_file.get('id'),
+                        'gdrive_link': drive_file.get('webViewLink'),
                         'storage': 'drive'
                     })
                     if os.path.exists(filepath): os.remove(filepath)
                     socketio_instance.emit("download_complete", {"download_id": download_id, "filename": filename})
-                else: raise Exception("Upload failed.")
+                else:
+                    raise Exception("Upload failed, no file object returned.")
+
                 active_downloads.pop(download_id, None)
+
             except Exception as e:
                 socketio_instance.emit("download_error", {"download_id": download_id, "error": f"Upload Error: {str(e)}"})
 
@@ -560,8 +588,8 @@ def register_socket_events(socketio):
         c = DownloadController(did, data['url'], data.get('filename_mode'), data.get('custom_filename'))
         active_downloads[did] = c
         emit('download_progress', {
-            'download_id': did, 'filename': 'Starting...', 'phase': 'downloading',
-            'percentage': 0, 'speed': '0 B/s', 'eta': '--', 'downloaded': 0, 'total_size': 0
+            'download_id': did, 'filename': 'Starting...', 'phase': 'downloading', 'percentage': 0,
+            'speed': '0 B/s', 'eta': '--', 'downloaded': 0, 'total_size': 0
         })
         socketio.start_background_task(download_with_smart_filename, c, socketio)
 
