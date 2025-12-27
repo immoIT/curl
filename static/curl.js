@@ -124,7 +124,6 @@ function updateDownloadUI(data) {
         bar.classList.add('progress-bar-striped', 'progress-bar-animated');
         bar.classList.remove('bg-primary');
         bar.classList.add('bg-info');
-        // FIX: Shortened Text
         statusText.innerHTML = '<span class="text-info"><i class="bi bi-cloud-upload"></i> Uploading...</span>';
         metaIcon.className = 'bi bi-cloud-upload me-1 meta-icon';
         const pauseBtn = el.querySelector('.btn-pause');
@@ -491,6 +490,7 @@ const qualityBtn = document.getElementById('qualityBtn');
 const fsBtn = document.getElementById('fsBtn');
 const volSlider = document.getElementById('volSlider');
 const muteBtn = document.getElementById('muteBtn');
+const closePlayerBtn = document.getElementById('closePlayerBtn'); // Get close button
 
 let playerModalInstance = null;
 let hideTimer;
@@ -521,7 +521,6 @@ function openPlayer(filename, driveId = null) {
     playerModalInstance = new bootstrap.Modal(modalEl);
     playerModalInstance.show();
     video.play().then(() => {
-        // FIX: Change icon to pause when autoplay starts
         playBtn.innerHTML = '<i class="fas fa-pause"></i>';
     }).catch(e => console.log("Autoplay blocked", e));
 }
@@ -699,14 +698,20 @@ video.addEventListener('loadedmetadata', () => {
 });
 
 function showControls() {
+    // Show everything
     controls.classList.remove('ui-hidden');
-    videoTitle.classList.remove('ui-hidden'); 
+    videoTitle.classList.remove('ui-hidden');
+    if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden'); // Show close button
+    
     wrapper.style.cursor = "default";
     clearTimeout(hideTimer);
+    
+    // Only auto-hide if playing and no menu is active
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
-            videoTitle.classList.add('ui-hidden'); 
+            videoTitle.classList.add('ui-hidden');
+            if(closePlayerBtn) closePlayerBtn.classList.add('ui-hidden'); // Hide close button
             wrapper.style.cursor = "none";
         }, 3000);
     }
@@ -727,13 +732,13 @@ playBtn.addEventListener('click', () => {
     } else { 
         video.pause(); 
         playBtn.innerHTML = '<i class="fas fa-play"></i>'; 
+        // Pause means show controls permanently (clear timer)
         clearTimeout(hideTimer); 
         controls.classList.remove('ui-hidden'); 
+        videoTitle.classList.remove('ui-hidden');
+        if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden');
     }
 });
-
-// FIX: Removed the click listener that toggles play on tap
-// video.addEventListener('click', (e) => { if(e.target === video) playBtn.click(); });
 
 progressBg.addEventListener('click', (e) => {
     const rect = progressBg.getBoundingClientRect();

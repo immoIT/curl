@@ -151,7 +151,7 @@
             margin: 0.5rem auto;
         }
 
-        /* CLOSE BUTTON STYLE FIX */
+        /* CLOSE BUTTON STYLE */
         .close-player-btn {
             position: absolute;
             top: -15px; 
@@ -168,7 +168,7 @@
             align-items: center;
             justify-content: center;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
-            transition: transform 0.2s;
+            transition: transform 0.2s, opacity 0.3s ease; /* Added opacity transition */
         }
         .close-player-btn:hover { transform: scale(1.1); }
 
@@ -425,7 +425,7 @@
             <div class="modal-content bg-transparent border-0 shadow-none">
                 <div class="modal-body p-0 position-relative">
                     
-                    <button onclick="closePlayer()" class="close-player-btn">
+                    <button onclick="closePlayer()" class="close-player-btn" id="closePlayerBtn">
                         <i class="fas fa-times"></i>
                     </button>
 
