@@ -1,0 +1,11 @@
+# Google OAuth / API secrets
+token.json
+client_secrets.json
+
+# Variants / backups
+token*.json
+client_secret*.json
+
+# Environment files
+.env
+.env.*

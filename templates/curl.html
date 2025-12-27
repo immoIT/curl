@@ -1,0 +1,473 @@
+
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bolt Downloader</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+
+    <style>
+        /* =========================================
+           1. DASHBOARD STYLES (RESTORED)
+           ========================================= */
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+        }
+        
+        body {
+            background-color: #f3f4f6;
+            transition: background-color 0.3s ease;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        [data-bs-theme="dark"] body {
+            background-color: #111827;
+        }
+
+        /* Navbar */
+        .navbar {
+            background: var(--primary-gradient);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Cards */
+        .card {
+            border: none;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+            background: white;
+            transition: transform 0.2s;
+        }
+        [data-bs-theme="dark"] .card {
+            background: #1f2937;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            padding: 1.25rem;
+            font-weight: 600;
+            color: var(--bs-body-color);
+        }
+        [data-bs-theme="dark"] .card-header {
+            border-bottom-color: rgba(255,255,255,0.05);
+        }
+
+        /* Active Download Items - RESTORED LOOK */
+        .download-item {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border-left: 5px solid #6366f1;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        [data-bs-theme="dark"] .download-item {
+            background: #1f2937; /* Darker bg for items */
+            border-color: #818cf8;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .download-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .download-item.paused {
+            border-left-color: #f59e0b;
+            opacity: 0.9;
+        }
+
+        .download-item.error {
+            border-left-color: #ef4444;
+        }
+
+        /* Progress Bars */
+        .progress {
+            height: 0.75rem;
+            border-radius: 1rem;
+            background-color: #e5e7eb;
+            margin: 0.75rem 0;
+            overflow: hidden;
+        }
+        [data-bs-theme="dark"] .progress {
+            background-color: #374151;
+        }
+
+        .progress-bar {
+            background: var(--primary-gradient);
+            border-radius: 1rem;
+            transition: width 0.3s ease;
+        }
+
+        .download-meta {
+            font-size: 0.85rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        [data-bs-theme="dark"] .download-meta {
+            color: #9ca3af;
+        }
+
+        /* File List Items */
+        .saved-file-card {
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .saved-file-card:hover {
+            background-color: rgba(99, 102, 241, 0.05);
+            border-left-color: #6366f1;
+        }
+        [data-bs-theme="dark"] .saved-file-card:hover {
+            background-color: rgba(99, 102, 241, 0.15);
+        }
+
+        /* Inputs & Animations */
+        .shake-invalid { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; border-color: #dc3545 !important; }
+        @keyframes shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } }
+        
+        .rotate-anim { animation: bolt-spin 1s linear infinite; display: inline-block; }
+        @keyframes bolt-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* =========================================
+           2. MX PLAYER STYLES (UNCHANGED)
+           ========================================= */
+        .player-wrapper {
+            position: relative;
+            background: #000;
+            width: 100%;
+            border-radius: 8px; 
+            overflow: hidden;   
+            aspect-ratio: 16/9;
+            box-shadow: 0 0 50px #000;
+            transition: all 0.5s ease;
+        }
+
+        .player-wrapper:fullscreen {
+            max-width: none !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            aspect-ratio: unset !important;
+            display: flex; justify-content: center; align-items: center;
+            border-radius: 0;
+        }
+        .player-wrapper:fullscreen video { height: 100%; width: 100%; }
+
+        .content-rotator {
+            width: 100%; height: 100%;
+            position: relative;
+            transform-origin: center center;
+            transition: transform 0.5s ease;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        video { 
+            width: 100%; height: 100%; 
+            object-fit: contain; transition: object-fit 0.3s;
+            background: #000;
+        }
+
+        /* Spinner */
+        .spinner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            border: 3px solid rgba(255, 255, 255, 0.1); border-left-color: #e50914;
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite; display: none; z-index: 50; pointer-events: none;
+        }
+        @keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        .ui-hidden { opacity: 0; pointer-events: none; }
+
+        .video-title {
+            position: absolute; top: 0; left: 0; right: 0;
+            padding: 10px 15px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            color: #e0e0e0; font-size: clamp(10px, 1.5vw, 13px); font-weight: 500;
+            z-index: 100; transition: opacity 0.3s ease; pointer-events: none; 
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+
+        .controls-container {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            padding: 5px 2vw 15px 2vw; display: flex; flex-direction: column; gap: 8px;
+            z-index: 100; transition: opacity 0.3s ease; width: 100%;
+        }
+
+        .btn-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+        .left-btns, .right-btns { display: flex; align-items: center; gap: clamp(8px, 1.2vw, 15px); }
+
+        .controls-container button {
+            background: none; border: none; color: #ddd; cursor: pointer;
+            font-size: clamp(12px, 2vw, 18px); padding: 5px; 
+            transition: transform 0.2s; min-width: 25px; 
+            text-align: center; display: flex; align-items: center; justify-content: center;
+        }
+        .controls-container button:hover { color: #fff; transform: scale(1.1); }
+        
+        .btn-text {
+            font-size: clamp(9px, 1.2vw, 12px); font-weight: 600; font-family: sans-serif;
+            border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; padding: 1px 4px; white-space: nowrap;
+        }
+
+        .duration-layer {
+            display: flex; align-items: center; gap: 10px; color: #ddd; 
+            font-size: clamp(10px, 1.2vw, 12px); font-family: monospace;
+        }
+        .progress-bg {
+            flex-grow: 1; height: 4px; background: rgba(255,255,255,0.2);
+            border-radius: 2px; cursor: pointer; position: relative; transition: height 0.2s;
+        }
+        .progress-bg:hover { height: 6px; }
+        .progress-fill {
+            height: 100%; background: #e50914; width: 0%; border-radius: 2px; position: relative;
+        }
+        .progress-fill::after {
+            content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
+            width: 10px; height: 10px; background: #fff; border-radius: 50%; opacity: 0; transition: 0.2s;
+        }
+        .progress-bg:hover .progress-fill::after { opacity: 1; }
+
+        /* Menus */
+        .volume-wrapper { position: relative; }
+        .volume-slider-container {
+            position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+            width: 24px; height: 80px; background: #222; border-radius: 6px;
+            display: flex; justify-content: center; visibility: hidden; opacity: 0; transition: 0.2s; margin-bottom: 8px;
+        }
+        .volume-wrapper:hover .volume-slider-container { visibility: visible; opacity: 1; }
+        
+        .popup-menu {
+            position: absolute; bottom: 130%; background: rgba(20,20,20,0.95);
+            border-radius: 5px; padding: 8px; display: none; flex-direction: column; gap: 4px;
+            min-width: 140px; z-index: 200; margin-bottom: 12px;
+        }
+        .popup-menu.active { display: flex; }
+        .menu-opt { padding: 4px; color: #ccc; cursor: pointer; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .menu-opt:hover { background: #333; color: #fff; }
+        .menu-opt.selected { color: #e50914; font-weight: bold; }
+        
+        ::cue { background-color: rgba(0, 0, 0, 0.7); color: white; font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="#">
+                <i class="bi bi-lightning-charge-fill me-2"></i>Bolt Downloader
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <span id="ramUsage" class="badge bg-white text-dark bg-opacity-10 text-white d-none d-md-inline-block" style="backdrop-filter: blur(5px);">RAM: --%</span>
+
+                <div class="form-check form-switch text-white">
+                    <input class="form-check-input" type="checkbox" id="darkModeToggle">
+                    <label class="form-check-label" for="darkModeToggle">
+                        <i id="themeIcon" class="bi bi-moon-stars-fill"></i>
+                    </label>
+                </div>
+                <span id="connectionStatus" class="badge bg-white text-primary">
+                    <span class="spinner-grow spinner-grow-sm me-1" role="status" aria-hidden="true"></span> Connecting...
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-activity me-2"></i>Active Downloads</h5>
+                    <span class="badge bg-primary rounded-pill" id="activeCount">0</span>
+                </div>
+                
+                <div id="activeDownloads">
+                    <div id="emptyState" class="text-center py-5 text-muted opacity-50">
+                        <i class="bi bi-cloud-download display-1"></i>
+                        <p class="mt-3">No active downloads running</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                 <div class="card mb-3">
+                    <div class="card-header bg-body-tertiary"><i class="bi bi-link-45deg me-2"></i>Direct Link</div>
+                    <div class="card-body">
+                        <form id="downloadForm">
+                            <div class="input-group mb-2">
+                                <input type="url" id="url" class="form-control" placeholder="Paste URL" required oninput="debounceDirectUrl()">
+                                <button class="btn btn-outline-secondary" type="button" onclick="pasteText('url')"><i class="bi bi-clipboard"></i></button>
+                                <button type="submit" class="btn btn-primary"><i class="bi bi-download"></i></button>
+                            </div>
+                            <div class="mb-2" id="filenamePreviewWrapper" style="display:none;">
+                                <div class="d-flex align-items-center gap-2" id="previewModeDisplay">
+                                    <i class="bi bi-file-earmark-text text-primary"></i>
+                                    <span id="filenamePreview" class="fw-medium text-break" style="font-size: 0.9rem;"></span>
+                                    <button type="button" class="btn btn-link p-0 text-secondary edit-icon-btn ms-auto" onclick="enableEditMode()"><i class="bi bi-pencil-square fs-6"></i></button>
+                                </div>
+                                <input type="text" id="customFilename" class="form-control form-control-sm mt-1" placeholder="filename.ext" style="display:none;">
+                            </div>
+                        </form>
+                    </div>
+                 </div>
+
+                 <div class="card mb-3">
+                    <div class="card-header bg-body-tertiary"><i class="bi bi-google me-2"></i>Google Drive Link</div>
+                    <div class="card-body">
+                         <div class="input-group mb-2">
+                            <span class="input-group-text bg-body-tertiary border-end-0"><i class="bi bi-google"></i></span>
+                            <input type="url" id="gdriveUrl" class="form-control border-start-0" placeholder="Paste Drive Share URL" oninput="debounceConvertGDrive()">
+                            <button class="btn btn-outline-secondary" type="button" onclick="pasteText('gdriveUrl')"><i class="bi bi-clipboard"></i></button>
+                        </div>
+                        <div id="gdriveResult" class="mt-2 p-2 rounded bg-body-secondary border" style="display:none">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="overflow-hidden me-2">
+                                    <div id="gdriveFilenameDisplay" class="small text-break"></div>
+                                    <input type="hidden" id="hiddenDirectLink">
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary" onclick="copyGDriveLink()"><i class="bi bi-clipboard"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                 </div>
+
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-folder-check me-2"></i>Downloaded Files</span>
+                        <button class="btn btn-sm btn-link p-0 text-decoration-none" onclick="loadSavedFiles()"><i id="refreshIcon" class="bi bi-arrow-clockwise fs-5"></i></button>
+                    </div>
+                    <div class="card-body p-2">
+                        <div id="savedFilesList" class="d-flex flex-column gap-2" style="max-height: 400px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4">
+                    <i id="modalIcon" class="bi display-3 mb-3 d-block"></i>
+                    <h5 id="modalTitle" class="modal-title fw-bold mb-2"></h5>
+                    <p class="text-muted mb-4" id="confirmMessage"></p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-light px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn px-4" id="confirmActionBtn"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width: 95vw;">
+            <div class="modal-content bg-transparent border-0 shadow-none">
+                <div class="modal-body p-0 position-relative">
+                    
+                    <button onclick="closePlayer()" style="position: absolute; top: 15px; right: 25px; z-index: 1000; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 50%; width: 40px; height: 40px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+
+                    <div class="player-wrapper" id="wrapper">
+                        <div class="spinner" id="bufferingIcon"></div>
+                        
+                        <div class="content-rotator" id="rotator">
+                            <div class="video-title" id="videoTitle">Video Title</div>
+
+                            <video id="video" crossorigin="anonymous" playsinline></video>
+                            
+                            <div class="controls-container" id="controls">
+                                <div class="btn-row">
+                                    <div class="left-btns">
+                                        <button id="playBtn"><i class="fas fa-play"></i></button>
+                                        <div class="volume-wrapper">
+                                            <button id="muteBtn"><i class="fas fa-volume-up"></i></button>
+                                            <div class="volume-slider-container">
+                                                <input type="range" style="writing-mode: bt-lr; -webkit-appearance: slider-vertical; height: 60px;" id="volSlider" min="0" max="1" step="0.1" value="1">
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="position:relative">
+                                            <button onclick="toggleMenu('audioMenu')"><i class="fas fa-music"></i></button>
+                                            <div class="popup-menu" style="left:0" id="audioMenu">
+                                                <div class="menu-opt" style="color:#666">Loading...</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="position:relative">
+                                            <button onclick="toggleMenu('subMenu')"><i class="fas fa-closed-captioning"></i></button>
+                                            <div class="popup-menu" style="left:0" id="subMenu">
+                                                <label for="subFileInput" class="menu-opt" style="border-bottom:1px solid #333; margin-bottom:4px; font-weight:600;">
+                                                    <i class="fas fa-cloud-upload-alt"></i> Upload Sub
+                                                </label>
+                                                <div id="subListContainer" style="max-height: 200px; overflow-y: auto;">
+                                                    <div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="right-btns">
+                                        <div style="position:relative">
+                                            <button id="qualityBtn" onclick="toggleMenu('qualityMenu')" title="Quality"><i class="fas fa-cog"></i></button>
+                                            <div class="popup-menu" style="right:0" id="qualityMenu">
+                                                <div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>
+                                                <div class="menu-opt" onclick="setQuality('720p', this)">720p</div>
+                                                <div class="menu-opt" onclick="setQuality('480p', this)">480p</div>
+                                            </div>
+                                        </div>
+                                        <div style="position:relative">
+                                            <button id="speedBtn" onclick="toggleMenu('speedMenu')" title="Speed"><i class="fas fa-tachometer-alt"></i></button>
+                                            <div class="popup-menu" style="right:0" id="speedMenu">
+                                                <div class="menu-opt" onclick="setSpeed(1.0, this)">Normal</div>
+                                                <div class="menu-opt" onclick="setSpeed(1.25, this)">1.25x</div>
+                                                <div class="menu-opt" onclick="setSpeed(1.5, this)">1.5x</div>
+                                                <div class="menu-opt" onclick="setSpeed(2.0, this)">2.0x</div>
+                                            </div>
+                                        </div>
+                                        <button onclick="toggleRotation()" title="Rotate"><i class="fas fa-mobile-alt"></i></button>
+                                        <button onclick="togglePiP()"><i class="fas fa-images"></i></button>
+                                        <button onclick="cycleZoom()" title="Zoom"><i class="fas fa-expand" id="zoomIcon"></i></button>
+                                        <button id="fsBtn"><i class="fas fa-expand-arrows-alt"></i></button>
+                                    </div>
+                                </div>
+                                <div class="duration-layer">
+                                    <span id="currTime">00:00</span>
+                                    <div class="progress-bg" id="progressBg">
+                                        <div class="progress-fill" id="progressFill"></div>
+                                    </div>
+                                    <span id="durTime">00:00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <input type="file" id="subFileInput" accept=".vtt,.srt,.ass,.ssa,.sub" style="display:none;">
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex"><div class="toast-body fw-medium" id="toastBody"></div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='curl.js') }}"></script>
+</body>
+</html>
