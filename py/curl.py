@@ -60,11 +60,15 @@ def get_gdrive_service():
     return build('drive', 'v3', credentials=creds)
 
 def get_file_metadata(file_id):
-    """Fetches name and mimeType from Drive."""
+    """Fetches name, mimeType, and video metadata from Drive."""
     try:
         service = get_gdrive_service()
         if not service: return {"name": "Unknown"}
-        file = service.files().get(fileId=file_id, fields="name, mimeType, size").execute()
+        # Added videoMediaMetadata to fields
+        file = service.files().get(
+            fileId=file_id, 
+            fields="name, mimeType, size, videoMediaMetadata"
+        ).execute()
         return file
     except Exception as e:
         print(f"Metadata Error: {e}")
@@ -87,7 +91,6 @@ def upload_file_to_drive(filepath, filename, progress_callback=None):
     
     try:
         file_metadata = {'name': filename}
-        # Chunk size 2MB
         media = MediaFileUpload(filepath, resumable=True, chunksize=2*1024*1024) 
         
         request = service.files().create(
@@ -219,17 +222,12 @@ def delete_file_route():
     filename = data.get('filename')
     global download_history
     
-    # 1. Find file to get GDrive ID
     target_file = next((f for f in download_history if f['name'] == filename), None)
-    
-    # 2. Delete from GDrive
     if target_file and target_file.get('gdrive_id'):
         delete_drive_file(target_file['gdrive_id'])
     
-    # 3. Remove from history
     download_history = [f for f in download_history if f['name'] != filename]
     
-    # 4. Remove local (if exists)
     try:
         path = os.path.join("downloads", filename)
         if os.path.exists(path): os.remove(path)
@@ -262,6 +260,21 @@ def upload_sub():
 def get_subs():
     return jsonify([])
 
+# --- VIDEO METADATA ROUTE (NEW) ---
+
+@curl_bp.route("/video_meta/<file_id>", methods=["GET"])
+def get_video_meta(file_id):
+    """Fetches video dimensions/details for the player."""
+    meta = get_file_metadata(file_id)
+    video_meta = meta.get('videoMediaMetadata', {})
+    
+    return jsonify({
+        'width': video_meta.get('width'),
+        'height': video_meta.get('height'),
+        'durationMillis': video_meta.get('durationMillis'),
+        'mimeType': meta.get('mimeType')
+    })
+
 # --- STREAMING & DOWNLOAD ROUTES ---
 
 @curl_bp.route('/download_drive/<file_id>')
@@ -284,39 +297,28 @@ def stream_drive_content(file_id, as_attachment=False):
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     
-    # Forward Range header only for streaming (not download)
     range_header = request.headers.get('Range', None)
     if not as_attachment and range_header: 
         headers['Range'] = range_header
 
     req = requests.get(url, headers=headers, stream=True)
     
-    # SRT -> VTT conversion for streaming ONLY
     if not as_attachment and filename.endswith('.srt'):
         return Response(srt_to_vtt(req.content), content_type="text/vtt")
     
     content_type = req.headers.get("Content-Type")
     if filename.endswith('.vtt'): content_type = "text/vtt"
     
-    # Headers to exclude (We MUST exclude Content-Disposition to set our own)
     excluded_headers = ['content-encoding', 'transfer-encoding', 'connection', 'authorization', 'content-disposition']
     
-    # If downloading, we want Content-Length so browser shows size.
-    # If streaming with conversion (SRT->VTT), size changes, so we shouldn't pass it.
     if not as_attachment and filename.endswith('.srt'):
         excluded_headers.append('content-length')
         
     response_headers = [(n, v) for (n, v) in req.headers.items() if n.lower() not in excluded_headers]
 
-    if as_attachment:
-        # Force the correct filename and attachment type
-        # Handle quotes in filename safely
-        safe_filename = filename.replace('"', '\\"')
-        response_headers.append(('Content-Disposition', f'attachment; filename="{safe_filename}"'))
-    else:
-        # For streaming, nice to have
-        safe_filename = filename.replace('"', '\\"')
-        response_headers.append(('Content-Disposition', f'inline; filename="{safe_filename}"'))
+    safe_filename = filename.replace('"', '\\"')
+    disposition = 'attachment' if as_attachment else 'inline'
+    response_headers.append(('Content-Disposition', f'{disposition}; filename="{safe_filename}"'))
 
     return Response(stream_with_context(req.iter_content(chunk_size=65536)), 
                    status=req.status_code, headers=response_headers, content_type=content_type)
@@ -450,7 +452,6 @@ def download_with_smart_filename(controller, socketio_instance):
         # --- UPLOAD PHASE ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
             
-            # Initial Upload State
             socketio_instance.emit("download_progress", {
                 "download_id": download_id,
                 "filename": filename,
@@ -468,14 +469,11 @@ def download_with_smart_filename(controller, socketio_instance):
             def upload_callback(status):
                 nonlocal last_upload_emit
                 now = time.time()
-                # Rate limit emission
                 if now - last_upload_emit >= 0.5:
                     progress_bytes = status.resumable_progress
                     total_bytes = status.total_size
-                    
                     elapsed = now - upload_start_time
                     up_speed = progress_bytes / max(elapsed, 0.1)
-                    
                     rem_bytes = total_bytes - progress_bytes
                     eta = format_time(rem_bytes / up_speed if up_speed > 0 else 0)
                     

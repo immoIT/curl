@@ -490,7 +490,7 @@ const qualityBtn = document.getElementById('qualityBtn');
 const fsBtn = document.getElementById('fsBtn');
 const volSlider = document.getElementById('volSlider');
 const muteBtn = document.getElementById('muteBtn');
-const closePlayerBtn = document.getElementById('closePlayerBtn'); // Get close button
+const closePlayerBtn = document.getElementById('closePlayerBtn');
 
 let playerModalInstance = null;
 let hideTimer;
@@ -517,11 +517,50 @@ function openPlayer(filename, driveId = null) {
     rotator.style.position = "relative";
     rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
     video.style.objectFit = 'contain';
+    
+    // Reset Resolution Label
+    qualityBtn.innerHTML = '<span class="btn-text">HD</span>';
+    const menu = document.getElementById('qualityMenu');
+    if(menu) {
+        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>
+                          <div class="menu-opt" onclick="setQuality('720p', this)">720p</div>
+                          <div class="menu-opt" onclick="setQuality('480p', this)">480p</div>`;
+    }
+
+    // Determine Original Resolution via API
+    if (driveId) {
+        fetch(`/video_meta/${driveId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.width && data.height) {
+                    const h = data.height;
+                    let label = 'Original';
+                    let badge = 'HD';
+                    
+                    if (h >= 2160) { badge = '4K'; label = 'Original (4K)'; }
+                    else if (h >= 1440) { badge = '2K'; label = 'Original (2K)'; }
+                    else if (h >= 1080) { badge = '1080p'; label = 'Original (1080p)'; }
+                    else if (h >= 720) { badge = '720p'; label = 'Original (720p)'; }
+                    else { badge = h + 'p'; label = `Original (${h}p)`; }
+
+                    qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
+                    
+                    if(menu) {
+                        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">${label}</div>
+                                          <div class="menu-opt" onclick="setQuality('720p', this)">720p</div>
+                                          <div class="menu-opt" onclick="setQuality('480p', this)">480p</div>`;
+                    }
+                }
+            })
+            .catch(e => console.log('Meta fetch error', e));
+    }
+
     const modalEl = document.getElementById('playerModal');
     playerModalInstance = new bootstrap.Modal(modalEl);
     playerModalInstance.show();
     video.play().then(() => {
         playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        showControls(); // Ensure controls start visible then fade if playing
     }).catch(e => console.log("Autoplay blocked", e));
 }
 
@@ -554,8 +593,15 @@ function setQuality(qual, el) {
     toggleMenu('qualityMenu');
     document.querySelectorAll('#qualityMenu .menu-opt').forEach(opt => opt.classList.remove('selected'));
     el.classList.add('selected');
-    if (qual === 'original') qualityBtn.innerHTML = '<span class="btn-text">HD</span>';
-    else qualityBtn.innerHTML = '<span class="btn-text">' + qual + '</span>';
+    // Note: Actual quality switching would require backend transcoding support
+    // This just updates the UI to reflect user intent
+    if (qual === 'original') {
+         // Re-fetch original label if possible, or just reset icon
+         // For now simple reset:
+         qualityBtn.innerHTML = '<span class="btn-text">HD</span>'; 
+    } else {
+         qualityBtn.innerHTML = '<span class="btn-text">' + qual + '</span>';
+    }
 }
 
 function cycleZoom() {
@@ -698,20 +744,19 @@ video.addEventListener('loadedmetadata', () => {
 });
 
 function showControls() {
-    // Show everything
     controls.classList.remove('ui-hidden');
     videoTitle.classList.remove('ui-hidden');
-    if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden'); // Show close button
+    if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden');
     
     wrapper.style.cursor = "default";
     clearTimeout(hideTimer);
     
-    // Only auto-hide if playing and no menu is active
+    // Only auto-hide if PLAYING and NO MENU is active
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
             videoTitle.classList.add('ui-hidden');
-            if(closePlayerBtn) closePlayerBtn.classList.add('ui-hidden'); // Hide close button
+            if(closePlayerBtn) closePlayerBtn.classList.add('ui-hidden');
             wrapper.style.cursor = "none";
         }, 3000);
     }
@@ -732,7 +777,7 @@ playBtn.addEventListener('click', () => {
     } else { 
         video.pause(); 
         playBtn.innerHTML = '<i class="fas fa-play"></i>'; 
-        // Pause means show controls permanently (clear timer)
+        // PAUSE state: Keep controls visible (clear any hide timer)
         clearTimeout(hideTimer); 
         controls.classList.remove('ui-hidden'); 
         videoTitle.classList.remove('ui-hidden');
