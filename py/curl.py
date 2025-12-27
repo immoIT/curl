@@ -1,4 +1,3 @@
-
 from flask import Blueprint, request, render_template, jsonify, Response, session
 from flask_socketio import emit
 import requests
@@ -13,7 +12,8 @@ from datetime import datetime
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 import re
-import psutil 
+import psutil
+import io
 
 # --- GOOGLE DRIVE IMPORTS ---
 from google.auth.transport.requests import Request
@@ -26,18 +26,19 @@ curl_bp = Blueprint('curl', __name__)
 
 # Global variables
 active_downloads = {}
-download_history = [] 
+download_history = []
 download_executor = ThreadPoolExecutor(max_workers=10)
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+SCOPES = ['https://www.googleapis.com/auth/drive']
+PLAYER_FILE_ID = "1x8hvC1XrdzwWerLAmStkS9Vu1NgLyu3A"  # Video file ID from test.py
 
 # --- DATABASE INIT ---
 def init_db():
     conn = sqlite3.connect('downloads.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS downloads
-                 (id TEXT PRIMARY KEY, filename TEXT, url TEXT, 
-                  total_size INTEGER, downloaded_size INTEGER, 
-                  status TEXT, created_at TIMESTAMP)''')
+    (id TEXT PRIMARY KEY, filename TEXT, url TEXT,
+    total_size INTEGER, downloaded_size INTEGER,
+    status TEXT, created_at TIMESTAMP)''')
     conn.commit()
     conn.close()
 
@@ -47,7 +48,6 @@ init_db()
 def get_gdrive_service():
     creds = None
     token_path = 'token.json'
-    
     if os.path.exists(token_path):
         try:
             creds = Credentials.from_authorized_user_file(token_path, SCOPES)
@@ -74,17 +74,16 @@ def upload_file_to_drive(filepath, filename):
     service = get_gdrive_service()
     if not service:
         return None
-    
+
     try:
         file_metadata = {'name': filename}
         media = MediaFileUpload(filepath, resumable=True)
-        
         file = service.files().create(
-            body=file_metadata, 
-            media_body=media, 
+            body=file_metadata,
+            media_body=media,
             fields='id, webViewLink, webContentLink'
         ).execute()
-        
+
         service.permissions().create(
             fileId=file.get('id'),
             body={'type': 'anyone', 'role': 'reader'}
@@ -95,8 +94,27 @@ def upload_file_to_drive(filepath, filename):
         print(f"GDrive Upload Error: {e}")
         return None
 
-# --- UTILITIES ---
+def get_file_metadata(file_id):
+    """Get metadata for a Google Drive file"""
+    try:
+        service = get_gdrive_service()
+        file = service.files().get(fileId=file_id, fields="name, parents, mimeType").execute()
+        return file
+    except Exception as e:
+        print(f"Metadata Error: {e}")
+        return {"name": "Unknown", "parents": []}
 
+def srt_to_vtt(srt_content):
+    """Converts SRT format to WebVTT format on the fly."""
+    try:
+        text = srt_content.decode('utf-8', errors='ignore').replace('\r\n', '\n')
+        text = re.sub(r'(\d{2}:\d{2}:\d{2}),(\d{3})', r'\1.\2', text)
+        return "WEBVTT\n\n" + text
+    except Exception as e:
+        print(f"Conversion Error: {e}")
+        return "WEBVTT\n\n"
+
+# --- UTILITIES ---
 def extract_filename_from_url(url):
     try:
         parsed_url = urlparse(url)
@@ -129,7 +147,7 @@ def extract_filename_from_headers(response_headers):
                 filename = unquote(filename)
                 if filename.startswith("UTF-8''"):
                     filename = filename[7:]
-                    filename = unquote(filename)
+                filename = unquote(filename)
                 filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
                 return filename
     except Exception as e:
@@ -166,17 +184,14 @@ def convert_gdrive_url(share_url):
             file_id = share_url.split('/file/d/')[1].split('/')[0]
         elif 'id=' in share_url:
             file_id = parse_qs(urlparse(share_url).query)['id'][0]
-        
         if file_id:
             direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             return direct_url, None
-            
     except Exception as e:
         print(f"GDrive conversion error: {e}")
     return share_url, None
 
 # --- BLUEPRINT ROUTES ---
-
 @curl_bp.route("/", methods=["GET"])
 def index():
     return render_template('curl.html')
@@ -190,7 +205,6 @@ def detect_filename_route():
     data = request.get_json()
     url = data.get('url', '')
     if not url: return jsonify({'success': False})
-    
     try:
         head = requests.head(url, timeout=5, allow_redirects=True)
         name = extract_filename_from_headers(head.headers)
@@ -216,32 +230,26 @@ def list_files_route():
 def delete_file_route():
     data = request.get_json()
     filename = data.get('filename')
-    
     if not filename:
         return jsonify({'success': False, 'error': 'Invalid filename'})
-    
-    # Check if it's in history
+
     global download_history
     file_entry = next((f for f in download_history if f['name'] == filename), None)
-    
-    # Remove from history
     download_history = [f for f in download_history if f['name'] != filename]
-    
-    # Remove from disk if it's a local file
+
     if file_entry and file_entry.get('storage') == 'drive':
         return jsonify({'success': True, 'message': 'Removed from history (Drive file)'})
-        
+
     path = os.path.join("downloads", filename)
     try:
         if os.path.exists(path):
             os.remove(path)
-            return jsonify({'success': True})
-        else:
-            return jsonify({'success': True, 'message': 'Removed from history (file was missing)'})
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@curl_bp.route('/stream/<path:filename>')
+# --- STREAM ROUTES ---
+@curl_bp.route('/stream/<filename>')
 def stream_file(filename):
     file_path = os.path.join("downloads", filename)
     if not os.path.exists(file_path):
@@ -249,7 +257,6 @@ def stream_file(filename):
 
     file_size = os.path.getsize(file_path)
     range_header = request.headers.get('Range', None)
-    
     mime_type, _ = mimetypes.guess_type(file_path)
     if not mime_type: mime_type = 'application/octet-stream'
 
@@ -268,12 +275,12 @@ def stream_file(filename):
         with open(file_path, 'rb') as f:
             f.seek(byte1)
             remaining = length
-            chunk_size = 1024 * 1024 
+            chunk_size = 1024 * 1024
             while remaining > 0:
                 read_amount = min(remaining, chunk_size)
                 data = f.read(read_amount)
                 if not data: break
-                yield data 
+                yield data
                 remaining -= len(data)
 
     rv = Response(generate(), 206, mimetype=mime_type, direct_passthrough=True)
@@ -283,44 +290,161 @@ def stream_file(filename):
 
 @curl_bp.route('/stream_drive/<file_id>')
 def stream_drive(file_id):
-    """
-    Proxy a Google Drive file download stream to the client.
-    Handles 'virus scan warning' for large files automatically.
-    """
+    """Proxy a Google Drive file download stream to the client with range support"""
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    
     session = requests.Session()
-    # Forward Range header to allow seeking in player
     headers = {}
     if 'Range' in request.headers:
         headers['Range'] = request.headers['Range']
-    
-    # Initial request
+
     response = session.get(url, headers=headers, stream=True)
-    
-    # Check for large file confirmation token
     token = None
     for key, value in response.cookies.items():
         if key.startswith('download_warning'):
             token = value
             break
-            
+
     if token:
         params = {'confirm': token, 'id': file_id}
         response = session.get(url, headers=headers, params=params, stream=True)
 
-    # Filter out headers that might conflict with Flask/WSGI
     excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
-    headers = [(name, value) for (name, value) in response.headers.items()
-               if name.lower() not in excluded_headers]
+    headers_list = [(name, value) for (name, value) in response.headers.items()
+                    if name.lower() not in excluded_headers]
 
-    return Response(response.iter_content(chunk_size=1024*1024), 
-                    status=response.status_code, 
-                    headers=headers,
+    return Response(response.iter_content(chunk_size=1024*1024),
+                    status=response.status_code,
+                    headers=headers_list,
                     direct_passthrough=True)
 
-# --- CONTROLLER CLASS ---
+# --- PLAYER ROUTES (from test.py) ---
+@curl_bp.route('/upload_sub', methods=['POST'])
+def upload_subtitle():
+    """Upload subtitle file to Google Drive"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
 
+    try:
+        service = get_gdrive_service()
+        video_meta = service.files().get(fileId=PLAYER_FILE_ID, fields="parents").execute()
+        parents = video_meta.get('parents', [])
+
+        # Delete old background subtitles
+        if parents:
+            parent_id = parents[0]
+            q_del = (
+                f"'{parent_id}' in parents and trashed = false and "
+                f"(name contains '.vtt' or name contains '.srt' or name contains '.ass' or "
+                f"name contains '.ssa' or name contains '.sub' or mimeType = 'text/vtt')"
+            )
+            existing_subs = service.files().list(q=q_del, fields="files(id)").execute()
+            for sub_file in existing_subs.get('files', []):
+                try:
+                    service.files().update(fileId=sub_file['id'], body={'trashed': True}).execute()
+                except Exception as del_err:
+                    print(f"Deletion warning: {del_err}")
+
+        mime_type = 'application/octet-stream'
+        if file.filename.endswith('.vtt'): mime_type = 'text/vtt'
+        elif file.filename.endswith('.srt'): mime_type = 'text/plain'
+
+        file_metadata = {'name': file.filename, 'parents': parents, 'mimeType': mime_type}
+        from googleapiclient.http import MediaIoBaseUpload
+        media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype=mime_type, resumable=True)
+        new_file = service.files().create(body=file_metadata, media_body=media, fields='id, name').execute()
+
+        return jsonify({'success': True, 'file_id': new_file.get('id'), 'name': new_file.get('name')})
+    except Exception as e:
+        print(f"Upload Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@curl_bp.route('/get_subs')
+def get_existing_subs():
+    """Get existing subtitles from Google Drive"""
+    try:
+        service = get_gdrive_service()
+        video_meta = service.files().get(fileId=PLAYER_FILE_ID, fields="parents").execute()
+        parents = video_meta.get('parents', [])
+        if not parents: return jsonify([])
+
+        parent_id = parents[0]
+        query = (
+            f"'{parent_id}' in parents and trashed = false and "
+            f"(name contains '.vtt' or name contains '.srt' or name contains '.ass' or "
+            f"name contains '.ssa' or name contains '.sub' or mimeType = 'text/vtt')"
+        )
+        results = service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get('files', [])
+        return jsonify(files)
+    except Exception as e:
+        print(f"List Subs Error: {e}")
+        return jsonify([])
+
+@curl_bp.route('/stream_sub/<file_id>')
+def stream_subtitle(file_id):
+    """Stream subtitle from Google Drive with SRT to VTT conversion"""
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+    
+    try:
+        service = get_gdrive_service()
+        meta = get_file_metadata(file_id)
+        filename = meta.get('name', '').lower()
+    except:
+        filename = ""
+
+    creds = None
+    token_path = 'token.json'
+    if os.path.exists(token_path):
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        except Exception as e:
+            print(f"Creds Error: {e}")
+            return "Credentials Error", 500
+
+    if not creds:
+        return "No credentials", 500
+
+    try:
+        headers = {"Authorization": f"Bearer {creds.token}"}
+        req = requests.get(url, headers=headers, stream=True)
+
+        if filename.endswith('.srt'):
+            content = req.content
+            vtt_content = srt_to_vtt(content)
+            return Response(vtt_content, content_type="text/vtt")
+
+        content_type = req.headers.get("Content-Type")
+        if filename.endswith('.vtt'):
+            content_type = "text/vtt"
+
+        return Response(
+            req.iter_content(chunk_size=1024 * 64),
+            content_type=content_type
+        )
+    except Exception as e:
+        print(f"Stream Error: {e}")
+        return str(e), 500
+
+@curl_bp.route('/get_player_file_id')
+def get_player_file_id():
+    """Get the main player file ID and metadata"""
+    try:
+        meta = get_file_metadata(PLAYER_FILE_ID)
+        return jsonify({
+            'success': True,
+            'file_id': PLAYER_FILE_ID,
+            'name': meta.get('name', 'Video')
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- CONTROLLER CLASS ---
 class DownloadController:
     def __init__(self, download_id, url, filename_mode='original', custom_filename=None):
         self.download_id = download_id
@@ -332,8 +456,7 @@ class DownloadController:
         self.is_cancelled = False
         self.active_run_id = str(uuid.uuid4())
         self.session = requests.Session()
-        self.last_status = None 
-        
+        self.last_status = None
         adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=3)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
@@ -344,7 +467,6 @@ class DownloadController:
 
     def determine_filename(self, response_headers=None):
         if self.final_filename: return self.final_filename
-        
         if self.filename_mode == 'custom' and self.custom_filename:
             self.final_filename = self.custom_filename.strip()
             self.final_filename = re.sub(r'[<>:"/\\|?*]', '_', self.final_filename)
@@ -353,7 +475,6 @@ class DownloadController:
         return self.final_filename
 
 # --- SOCKET & BACKGROUND TASK LOGIC ---
-
 def background_system_stats(socketio_instance):
     while True:
         try:
@@ -373,7 +494,7 @@ def download_with_smart_filename(controller, socketio_instance):
     download_id = controller.download_id
     url = controller.url
     current_run_id = controller.active_run_id
-    
+
     try:
         if not controller.final_filename:
             try:
@@ -381,7 +502,7 @@ def download_with_smart_filename(controller, socketio_instance):
                 controller.determine_filename(head.headers)
             except Exception:
                 controller.determine_filename()
-        
+
         filename = controller.final_filename
         os.makedirs("downloads", exist_ok=True)
         filepath = os.path.join("downloads", filename)
@@ -391,7 +512,6 @@ def download_with_smart_filename(controller, socketio_instance):
             return
 
         resume_byte_pos = os.path.getsize(filepath) if os.path.exists(filepath) else 0
-
         headers = {}
         if resume_byte_pos > 0:
             headers["Range"] = f"bytes={resume_byte_pos}-"
@@ -399,7 +519,6 @@ def download_with_smart_filename(controller, socketio_instance):
         # --- DOWNLOADING PHASE ---
         with controller.session.get(url, headers=headers, stream=True, timeout=20) as response:
             response.raise_for_status()
-
             if response.status_code == 206:
                 file_mode = "ab"
                 downloaded = resume_byte_pos
@@ -420,63 +539,59 @@ def download_with_smart_filename(controller, socketio_instance):
             with open(filepath, file_mode, buffering=1024*1024) as f:
                 start_time = time.time()
                 last_emit = 0
-
                 for chunk in response.iter_content(chunk_size=1024*1024):
-                    if controller.is_cancelled: break 
+                    if controller.is_cancelled: break
                     if controller.is_paused or controller.active_run_id != current_run_id: return
 
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        now = time.time()
-                        if now - last_emit >= 0.5:
-                            elapsed = max(now - start_time, 0.1)
-                            speed = (downloaded - resume_byte_pos) / elapsed
-                            pct = (downloaded / total_size * 100) if total_size else 0
-                            
-                            remaining = max(total_size - downloaded, 0)
-                            if speed > 0 and remaining > 0:
-                                eta_s = remaining / speed
-                                eta_str = f"{int(eta_s // 60)}m {int(eta_s % 60)}s"
-                            else:
-                                eta_str = "--"
 
-                            status_payload = {
-                                "download_id": download_id,
-                                "filename": filename,
-                                "percentage": pct,
-                                "speed": format_speed(speed),
-                                "eta": eta_str,
-                                "downloaded": downloaded,
-                                "total_size": total_size
-                            }
-                            controller.last_status = status_payload
-                            socketio_instance.emit("download_progress", status_payload)
-                            last_emit = now
+                    now = time.time()
+                    if now - last_emit >= 0.5:
+                        elapsed = max(now - start_time, 0.1)
+                        speed = (downloaded - resume_byte_pos) / elapsed
+                        pct = (downloaded / total_size * 100) if total_size else 0
+                        remaining = max(total_size - downloaded, 0)
+                        if speed > 0 and remaining > 0:
+                            eta_s = remaining / speed
+                            eta_str = f"{int(eta_s // 60)}m {int(eta_s % 60)}s"
+                        else:
+                            eta_str = "--"
+
+                        status_payload = {
+                            "download_id": download_id,
+                            "filename": filename,
+                            "percentage": pct,
+                            "speed": format_speed(speed),
+                            "eta": eta_str,
+                            "downloaded": downloaded,
+                            "total_size": total_size
+                        }
+                        controller.last_status = status_payload
+                        socketio_instance.emit("download_progress", status_payload)
+                        last_emit = now
 
         if controller.is_cancelled:
             try:
                 if os.path.exists(filepath): os.remove(filepath)
             except: pass
             active_downloads.pop(download_id, None)
-            return 
+            return
 
         # --- UPLOAD TO DRIVE LOGIC ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
-            
-            # 1. Notify UI: Transition Status
             upload_status = {
                 "download_id": download_id,
                 "filename": filename,
-                "percentage": 100, # Keep bar full
-                "speed": "Uploading to Drive...", # New Message
+                "percentage": 100,
+                "speed": "Uploading to Drive...",
                 "eta": "Processing",
                 "downloaded": total_size,
                 "total_size": total_size
             }
             socketio_instance.emit("download_progress", upload_status)
 
-            # 2. Perform Upload
             gdrive_file = None
             try:
                 gdrive_file = upload_file_to_drive(filepath, filename)
@@ -487,18 +602,18 @@ def download_with_smart_filename(controller, socketio_instance):
                 })
                 return
 
-            # 3. Add to history (Mark as Drive file)
+            # Add to history with Drive file info
             file_entry = {
                 'name': filename,
                 'size': total_size,
                 'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'gdrive_link': gdrive_file.get('webViewLink') if gdrive_file else None,
                 'gdrive_id': gdrive_file.get('id') if gdrive_file else None,
-                'storage': 'drive' # Flag to indicate no local file
+                'storage': 'drive'
             }
             download_history.append(file_entry)
-            
-            # 4. Cleanup Local File
+
+            # DELETE LOCAL FILE AFTER UPLOAD
             try:
                 if os.path.exists(filepath):
                     os.remove(filepath)
@@ -506,10 +621,11 @@ def download_with_smart_filename(controller, socketio_instance):
             except Exception as e:
                 print(f"Error deleting local file: {e}")
 
-            # 5. Complete
             socketio_instance.emit("download_complete", {
                 "download_id": download_id,
-                "filename": filename
+                "filename": filename,
+                "gdrive_id": gdrive_file.get('id') if gdrive_file else None,
+                "gdrive_link": gdrive_file.get('webViewLink') if gdrive_file else None
             })
             active_downloads.pop(download_id, None)
 
@@ -545,7 +661,6 @@ def register_socket_events(socketio):
         controller = DownloadController(download_id, data['url'], data.get('filename_mode'), data.get('custom_filename'))
         active_downloads[download_id] = controller
         socketio.start_background_task(download_with_smart_filename, controller, socketio)
-        
         initial_status = {
             'download_id': download_id,
             'filename': 'Starting...',
