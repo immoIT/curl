@@ -117,24 +117,18 @@ function updateDownloadUI(data) {
     const bar = el.querySelector('.progress-bar');
     bar.style.width = `${data.percentage}%`;
     
-    // UI Logic for Phases
     const statusText = el.querySelector('.status-text');
-    const metaIcon = el.querySelector('.meta-icon'); // Icon near bytes
+    const metaIcon = el.querySelector('.meta-icon');
 
     if (data.phase === 'uploading') {
-        // Uploading UI
         bar.classList.add('progress-bar-striped', 'progress-bar-animated');
         bar.classList.remove('bg-primary');
         bar.classList.add('bg-info');
         statusText.innerHTML = '<span class="text-info"><i class="bi bi-cloud-upload"></i> Uploading to Google Drive...</span>';
         metaIcon.className = 'bi bi-cloud-upload me-1 meta-icon';
-        
-        // Disable Pause during upload
         const pauseBtn = el.querySelector('.btn-pause');
         if(pauseBtn) pauseBtn.style.display = 'none';
-
     } else {
-        // Downloading UI
         bar.classList.remove('bg-info', 'progress-bar-striped', 'progress-bar-animated');
         bar.classList.add('bg-primary');
         statusText.innerHTML = 'Downloading...';
@@ -454,7 +448,8 @@ function loadSavedFiles() {
         } else {
             c.innerHTML = data.files.map(f => {
                 const playBtn = `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')"><i class="bi bi-play-circle-fill fs-5"></i></button>`;
-                const driveBtn = f.gdrive_link ? `<a href="${f.gdrive_link}" target="_blank" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-google fs-5"></i></a>` : '';
+                // Changed to Download Icon and Route
+                const downloadBtn = f.gdrive_id ? `<a href="/download_drive/${f.gdrive_id}" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-cloud-download fs-5"></i></a>` : '';
                 
                 return `
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
@@ -465,7 +460,7 @@ function loadSavedFiles() {
                             <small class="text-muted">${formatBytes(f.size)} • ${f.date}</small>
                         </div>
                         <div class="d-flex align-items-center">
-                            ${driveBtn}
+                            ${downloadBtn}
                             ${playBtn}
                             <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')"><i class="bi bi-trash"></i></button>
                         </div>

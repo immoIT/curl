@@ -87,7 +87,7 @@ def upload_file_to_drive(filepath, filename, progress_callback=None):
     
     try:
         file_metadata = {'name': filename}
-        # Chunk size 2MB (adjustable)
+        # Chunk size 2MB
         media = MediaFileUpload(filepath, resumable=True, chunksize=2*1024*1024) 
         
         request = service.files().create(
@@ -102,7 +102,6 @@ def upload_file_to_drive(filepath, filename, progress_callback=None):
             if status and progress_callback:
                 progress_callback(status)
         
-        # Make reader accessible
         try:
             service.permissions().create(
                 fileId=response.get('id'),
@@ -114,6 +113,17 @@ def upload_file_to_drive(filepath, filename, progress_callback=None):
     except Exception as e:
         print(f"GDrive Upload Error: {e}")
         return None
+
+def delete_drive_file(file_id):
+    """Deletes a file from Google Drive."""
+    service = get_gdrive_service()
+    if not service: return False
+    try:
+        service.files().delete(fileId=file_id).execute()
+        return True
+    except Exception as e:
+        print(f"GDrive Delete Error: {e}")
+        return False
 
 # --- LOCAL FILE UTILITIES ---
 
@@ -208,11 +218,23 @@ def delete_file_route():
     data = request.get_json()
     filename = data.get('filename')
     global download_history
+    
+    # 1. Find file to get GDrive ID
+    target_file = next((f for f in download_history if f['name'] == filename), None)
+    
+    # 2. Delete from GDrive
+    if target_file and target_file.get('gdrive_id'):
+        delete_drive_file(target_file['gdrive_id'])
+    
+    # 3. Remove from history
     download_history = [f for f in download_history if f['name'] != filename]
+    
+    # 4. Remove local (if exists)
     try:
         path = os.path.join("downloads", filename)
         if os.path.exists(path): os.remove(path)
     except: pass
+    
     return jsonify({'success': True})
 
 @curl_bp.route("/upload_sub", methods=["POST"])
@@ -240,24 +262,37 @@ def upload_sub():
 def get_subs():
     return jsonify([])
 
-# --- STREAMING ROUTES ---
+# --- STREAMING & DOWNLOAD ROUTES ---
+
+@curl_bp.route('/download_drive/<file_id>')
+def download_drive(file_id):
+    """Downloads a file directly from Google Drive."""
+    return stream_drive_content(file_id, as_attachment=True)
 
 @curl_bp.route('/stream_drive/<file_id>')
 def stream_drive(file_id):
+    """Streams media for the player."""
+    return stream_drive_content(file_id, as_attachment=False)
+
+def stream_drive_content(file_id, as_attachment=False):
     creds = get_credentials()
     if not creds: return "Credentials error", 401
 
     meta = get_file_metadata(file_id)
-    filename = meta.get('name', '').lower()
+    filename = meta.get('name', 'downloaded_file').lower()
+    
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     
+    # Forward Range header only for streaming
     range_header = request.headers.get('Range', None)
-    if range_header: headers['Range'] = range_header
+    if not as_attachment and range_header: 
+        headers['Range'] = range_header
 
     req = requests.get(url, headers=headers, stream=True)
     
-    if filename.endswith('.srt'):
+    # SRT -> VTT conversion for streaming
+    if not as_attachment and filename.endswith('.srt'):
         return Response(srt_to_vtt(req.content), content_type="text/vtt")
     
     content_type = req.headers.get("Content-Type")
@@ -265,6 +300,9 @@ def stream_drive(file_id):
     
     excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'authorization']
     response_headers = [(n, v) for (n, v) in req.headers.items() if n.lower() not in excluded_headers]
+
+    if as_attachment:
+        response_headers.append(('Content-Disposition', f'attachment; filename="{filename}"'))
 
     return Response(stream_with_context(req.iter_content(chunk_size=65536)), 
                    status=req.status_code, headers=response_headers, content_type=content_type)
@@ -395,7 +433,7 @@ def download_with_smart_filename(controller, socketio_instance):
             active_downloads.pop(download_id, None)
             return
 
-        # --- UPLOAD PHASE (UPDATED) ---
+        # --- UPLOAD PHASE ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
             
             # Initial Upload State
@@ -416,7 +454,7 @@ def download_with_smart_filename(controller, socketio_instance):
             def upload_callback(status):
                 nonlocal last_upload_emit
                 now = time.time()
-                # Rate limit emission to avoid socket flooding
+                # Rate limit emission
                 if now - last_upload_emit >= 0.5:
                     progress_bytes = status.resumable_progress
                     total_bytes = status.total_size
