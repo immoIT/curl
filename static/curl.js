@@ -1,4 +1,3 @@
-
 // - Complete Client Logic
 
 // =========================================================
@@ -118,13 +117,28 @@ function updateDownloadUI(data) {
     const bar = el.querySelector('.progress-bar');
     bar.style.width = `${data.percentage}%`;
     
-    if (data.speed && data.speed.includes("Uploading")) {
+    // UI Logic for Phases
+    const statusText = el.querySelector('.status-text');
+    const metaIcon = el.querySelector('.meta-icon'); // Icon near bytes
+
+    if (data.phase === 'uploading') {
+        // Uploading UI
         bar.classList.add('progress-bar-striped', 'progress-bar-animated');
         bar.classList.remove('bg-primary');
         bar.classList.add('bg-info');
+        statusText.innerHTML = '<span class="text-info"><i class="bi bi-cloud-upload"></i> Uploading to Google Drive...</span>';
+        metaIcon.className = 'bi bi-cloud-upload me-1 meta-icon';
+        
+        // Disable Pause during upload
+        const pauseBtn = el.querySelector('.btn-pause');
+        if(pauseBtn) pauseBtn.style.display = 'none';
+
     } else {
-        bar.classList.remove('bg-info');
+        // Downloading UI
+        bar.classList.remove('bg-info', 'progress-bar-striped', 'progress-bar-animated');
         bar.classList.add('bg-primary');
+        statusText.innerHTML = 'Downloading...';
+        metaIcon.className = 'bi bi-hdd me-1 meta-icon';
     }
     
     el.querySelector('.filename').innerText = data.filename;
@@ -150,9 +164,9 @@ function createDownloadItem(data) {
                 <button class="btn btn-sm btn-outline-danger" onclick="cancelDownload('${data.download_id}')" title="Cancel"><i class="bi bi-x-lg"></i></button>
             </div>
         </div>
-        <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div></div>
+        <div class="progress"><div class="progress-bar" role="progressbar" style="width: 0%"></div></div>
         <div class="download-meta d-flex justify-content-between">
-            <span><i class="bi bi-hdd me-1"></i><span class="downloaded">0/0</span></span>
+            <span><i class="bi bi-hdd me-1 meta-icon"></i><span class="downloaded">0/0</span></span>
             <span><i class="bi bi-speedometer2 me-1"></i><span class="speed">0 B/s</span></span>
             <span><i class="bi bi-clock me-1"></i><span class="eta">--</span></span>
             <span class="fw-bold percent text-primary">0%</span>
@@ -242,7 +256,7 @@ confirmBtn.addEventListener('click', () => {
     confirmModal.hide();
 });
 
-// --- Control Functions (RESTORED) ---
+// --- Control Functions ---
 function pauseDownload(id) { 
     showConfirm({
         title: 'Pause Download?',
@@ -306,7 +320,7 @@ function deleteFile(filename) {
     });
 }
 
-// --- Utilities (RESTORED) ---
+// --- Utilities ---
 function formatBytes(bytes, decimals = 2) {
     if (!+bytes) return '0 B';
     const k = 1024;
@@ -334,7 +348,7 @@ async function pasteText(id) {
     } catch(e) { showToast('Clipboard access denied or empty', 'warning'); }
 }
 
-// --- URL Handling (RESTORED) ---
+// --- URL Handling ---
 function detectFilename() {
     const url = document.getElementById('url').value;
     const wrapper = document.getElementById('filenamePreviewWrapper');
@@ -410,7 +424,6 @@ function validateAndConvert() {
         showToast('Only Google Drive links allowed!', 'warning');
         return;
     }
-    // Dummy logic for client-side convert call
     document.getElementById('gdriveLoading').style.display = 'block';
     document.getElementById('gdriveResult').style.display = 'none';
     
@@ -440,7 +453,6 @@ function loadSavedFiles() {
              c.innerHTML = '<div class="text-center text-muted p-3">No active downloads finished yet.</div>';
         } else {
             c.innerHTML = data.files.map(f => {
-                // Pass Drive ID to openPlayer if available
                 const playBtn = `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')"><i class="bi bi-play-circle-fill fs-5"></i></button>`;
                 const driveBtn = f.gdrive_link ? `<a href="${f.gdrive_link}" target="_blank" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-google fs-5"></i></a>` : '';
                 
@@ -466,7 +478,7 @@ function loadSavedFiles() {
 }
 
 // =========================================================
-// 2. MX PLAYER CONTROLLER LOGIC (Ported from test.py)
+// 2. MX PLAYER CONTROLLER LOGIC (UNCHANGED)
 // =========================================================
 
 const video = document.getElementById('video');
@@ -496,31 +508,23 @@ const zoomIcons = ['fa-expand', 'fa-crop-alt', 'fa-arrows-alt-h'];
 
 function openPlayer(filename, driveId = null) {
     videoTitle.innerText = filename;
-
-    // Use Drive Proxy if ID exists, else local stream
     let streamUrl = driveId ? `/stream_drive/${driveId}` : `/stream/${encodeURIComponent(filename)}`;
     video.src = streamUrl;
-    
-    // Reset State
     video.playbackRate = 1.0;
     video.volume = 1.0;
     volSlider.value = 1.0;
     progressFill.style.width = '0%';
     document.getElementById('currTime').innerText = "00:00";
     document.getElementById('durTime').innerText = "00:00";
-    
-    // Reset Transforms
     isPortrait = false;
     rotator.style.transform = "rotate(0deg)";
     rotator.style.width = "100%"; rotator.style.height = "100%";
     rotator.style.position = "relative";
     rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
     video.style.objectFit = 'contain';
-    
     const modalEl = document.getElementById('playerModal');
     playerModalInstance = new bootstrap.Modal(modalEl);
     playerModalInstance.show();
-
     video.play().catch(e => console.log("Autoplay blocked", e));
 }
 
@@ -533,11 +537,9 @@ function closePlayer() {
 // --- 2. Menu & UI Toggles ---
 
 function toggleMenu(id) {
-    // Hide all other menus first
     document.querySelectorAll('.popup-menu').forEach(x => {
         if(x.id !== id) x.classList.remove('active');
     });
-    // Toggle requested menu
     const el = document.getElementById(id);
     if(el) el.classList.toggle('active');
 }
@@ -547,7 +549,6 @@ function setSpeed(rate, el) {
     toggleMenu('speedMenu');
     document.querySelectorAll('#speedMenu .menu-opt').forEach(opt => opt.classList.remove('selected'));
     el.classList.add('selected');
-    
     if (rate === 1.0) speedBtn.innerHTML = '<i class="fas fa-tachometer-alt"></i>';
     else speedBtn.innerHTML = '<span class="btn-text">' + rate + 'x</span>';
 }
@@ -556,7 +557,6 @@ function setQuality(qual, el) {
     toggleMenu('qualityMenu');
     document.querySelectorAll('#qualityMenu .menu-opt').forEach(opt => opt.classList.remove('selected'));
     el.classList.add('selected');
-    
     if (qual === 'original') qualityBtn.innerHTML = '<span class="btn-text">HD</span>';
     else qualityBtn.innerHTML = '<span class="btn-text">' + qual + '</span>';
 }
@@ -593,17 +593,14 @@ async function togglePiP() {
     } catch(e) { showToast('PiP not supported', 'warning'); }
 }
 
-// --- 3. Subtitle Logic (Matches test.py) ---
+// --- 3. Subtitle Logic ---
 
 async function loadExistingSubs() {
     try {
-        const res = await fetch('/get_subs'); // Assumes backend endpoint exists
+        const res = await fetch('/get_subs'); 
         const subs = await res.json();
         const container = document.getElementById('subListContainer');
-        
-        // Reset list
         container.innerHTML = '<div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>';
-        
         if (Array.isArray(subs)) {
             subs.forEach(sub => addSubToMenu(sub.name, sub.id));
         }
@@ -611,31 +608,25 @@ async function loadExistingSubs() {
 }
 
 function addSubToMenu(name, fileId) {
-    // 1. Create Track Element
     const track = document.createElement("track");
     track.kind = "captions"; 
     track.label = name; 
-    track.src = "/stream_drive/" + fileId; // Stream subs from Drive
+    track.src = "/stream_drive/" + fileId; 
     track.srclang = "en"; 
     video.appendChild(track);
     
-    // 2. Add Menu Option
     const div = document.createElement('div');
     div.className = 'menu-opt'; 
     div.innerText = name;
     div.onclick = function() {
-        // Toggle Tracks
         for(let i=0; i<video.textTracks.length; i++) {
             if(video.textTracks[i].label === name) video.textTracks[i].mode = 'showing';
             else video.textTracks[i].mode = 'hidden';
         }
-        // Update UI
         document.querySelectorAll('#subListContainer .menu-opt').forEach(el => el.classList.remove('selected'));
         div.classList.add('selected');
         toggleMenu('subMenu');
     };
-    
-    // Insert after "Off" button
     const container = document.getElementById('subListContainer');
     if (container.children.length > 0) {
         container.insertBefore(div, container.children[1]); 
@@ -644,42 +635,26 @@ function addSubToMenu(name, fileId) {
     }
 }
 
-// Handle File Upload
 document.getElementById('subFileInput').addEventListener('change', async function() {
     if(this.files[0]) {
         const file = this.files[0];
         const formData = new FormData(); 
         formData.append('file', file);
-        
         try {
-            // Show loading state
             const label = document.querySelector('label[for="subFileInput"]');
             const originalText = label.innerHTML;
             label.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-            
             const res = await fetch('/upload_sub', { method: 'POST', body: formData });
             const data = await res.json();
-            
             if(data.success) {
-                // Clear old tracks to prevent sync issues
                 video.querySelectorAll('track').forEach(t => t.remove());
-                
                 const container = document.getElementById('subListContainer');
                 container.innerHTML = '<div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>';
-                
                 addSubToMenu(data.name, data.file_id);
-                
-                // Automatically select the new subtitle
                 if(container.children[1]) container.children[1].click();
-                
             } else { showToast("Upload failed: " + data.error, 'danger'); }
-            
             label.innerHTML = originalText;
-        } catch(e) { 
-            showToast("Error uploading subtitle", 'danger'); 
-        } finally { 
-            toggleMenu('subMenu'); 
-        }
+        } catch(e) { showToast("Error uploading subtitle", 'danger'); } finally { toggleMenu('subMenu'); }
     }
 });
 
@@ -729,10 +704,7 @@ function showControls() {
     controls.classList.remove('ui-hidden');
     videoTitle.classList.remove('ui-hidden'); 
     wrapper.style.cursor = "default";
-    
     clearTimeout(hideTimer);
-    
-    // Auto-hide if playing and no menu is open
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
@@ -742,10 +714,8 @@ function showControls() {
     }
 }
 
-// Show controls on interaction
 wrapper.addEventListener('mousemove', showControls);
 wrapper.addEventListener('click', (e) => {
-    // Don't trigger if clicking a button or menu
     if(!e.target.closest('button') && !e.target.closest('.popup-menu') && !e.target.closest('.progress-bg')) {
         showControls();
     }
@@ -764,12 +734,10 @@ playBtn.addEventListener('click', () => {
     }
 });
 
-// Click video to toggle play
 video.addEventListener('click', (e) => {
     if(e.target === video) playBtn.click();
 });
 
-// Progress Bar
 progressBg.addEventListener('click', (e) => {
     const rect = progressBg.getBoundingClientRect();
     const pos = (e.clientX - rect.left) / rect.width;
@@ -806,7 +774,6 @@ muteBtn.addEventListener('click', () => {
     else muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
 });
 
-// Cleanup on modal close
 document.getElementById('playerModal').addEventListener('hidden.bs.modal', function () {
     closePlayer();
 });
