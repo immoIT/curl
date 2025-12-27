@@ -14,7 +14,7 @@
 
     <style>
         /* =========================================
-           1. DASHBOARD STYLES (UNCHANGED)
+           1. DASHBOARD STYLES
            ========================================= */
         :root {
             --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
@@ -146,29 +146,56 @@
            2. MX PLAYER RESPONSIVE FIXES
            ========================================= */
         
-        /* Fix Modal Width on Small/Medium Devices */
         .modal-dialog.modal-xl {
             max-width: 98vw; 
             margin: 0.5rem auto;
         }
 
-        /* Wrapper: Fix Overflow & Centering */
+        /* CLOSE BUTTON STYLE FIX */
+        .close-player-btn {
+            position: absolute;
+            top: -15px; 
+            right: -15px; 
+            z-index: 2000;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid white;
+            color: white;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            transition: transform 0.2s;
+        }
+        .close-player-btn:hover { transform: scale(1.1); }
+
+        /* Mobile / Small Screen Adjustment */
+        @media (max-width: 768px) {
+            .close-player-btn {
+                top: 5px;   /* Inside the frame */
+                right: 5px; /* Inside the frame */
+                width: 30px;
+                height: 30px;
+                font-size: 14px;
+                border-width: 1.5px;
+            }
+        }
+
+        /* Wrapper */
         .player-wrapper {
             position: relative;
             background: #000;
             width: 100%;
-            /* 1. Limit height to prevent vertical overflow on phones/LED frames */
             max-height: 80vh; 
-            /* 2. Maintain aspect ratio */
             aspect-ratio: 16/9;
-            /* 3. Center horizontally */
             margin: 0 auto;
             border-radius: 8px; 
             overflow: hidden;   
             box-shadow: 0 0 50px #000;
             transition: all 0.5s ease;
-            
-            /* Center video content */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -226,22 +253,19 @@
         }
 
         .btn-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-        /* Reverted gap to original */
         .left-btns, .right-btns { display: flex; align-items: center; gap: clamp(8px, 1.2vw, 15px); }
 
         .controls-container button {
             background: none; border: none; color: #ddd; cursor: pointer;
-            /* Reverted Font Size to Original */
             font-size: clamp(12px, 2vw, 18px); 
             padding: 5px; 
             transition: transform 0.2s; 
-            min-width: 25px; /* Reverted min-width */
+            min-width: 25px;
             text-align: center; display: flex; align-items: center; justify-content: center;
         }
         .controls-container button:hover { color: #fff; transform: scale(1.1); }
         
         .btn-text {
-            /* Reverted text size */
             font-size: clamp(9px, 1.2vw, 12px); 
             font-weight: 600; font-family: sans-serif;
             border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; padding: 1px 4px; white-space: nowrap;
@@ -401,7 +425,7 @@
             <div class="modal-content bg-transparent border-0 shadow-none">
                 <div class="modal-body p-0 position-relative">
                     
-                    <button onclick="closePlayer()" style="position: absolute; top: -15px; right: -15px; z-index: 1000; background: rgba(0,0,0,0.8); border: 2px solid white; color: white; border-radius: 50%; width: 35px; height: 35px; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(0,0,0,0.5);">
+                    <button onclick="closePlayer()" class="close-player-btn">
                         <i class="fas fa-times"></i>
                     </button>
 

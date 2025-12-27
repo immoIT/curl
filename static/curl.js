@@ -124,7 +124,8 @@ function updateDownloadUI(data) {
         bar.classList.add('progress-bar-striped', 'progress-bar-animated');
         bar.classList.remove('bg-primary');
         bar.classList.add('bg-info');
-        statusText.innerHTML = '<span class="text-info"><i class="bi bi-cloud-upload"></i> Uploading to Google Drive...</span>';
+        // FIX: Shortened Text
+        statusText.innerHTML = '<span class="text-info"><i class="bi bi-cloud-upload"></i> Uploading...</span>';
         metaIcon.className = 'bi bi-cloud-upload me-1 meta-icon';
         const pauseBtn = el.querySelector('.btn-pause');
         if(pauseBtn) pauseBtn.style.display = 'none';
@@ -448,7 +449,6 @@ function loadSavedFiles() {
         } else {
             c.innerHTML = data.files.map(f => {
                 const playBtn = `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')"><i class="bi bi-play-circle-fill fs-5"></i></button>`;
-                // Changed to Download Icon and Route
                 const downloadBtn = f.gdrive_id ? `<a href="/download_drive/${f.gdrive_id}" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-cloud-download fs-5"></i></a>` : '';
                 
                 return `
@@ -473,7 +473,7 @@ function loadSavedFiles() {
 }
 
 // =========================================================
-// 2. MX PLAYER CONTROLLER LOGIC (UNCHANGED)
+// 2. MX PLAYER CONTROLLER LOGIC
 // =========================================================
 
 const video = document.getElementById('video');
@@ -520,7 +520,10 @@ function openPlayer(filename, driveId = null) {
     const modalEl = document.getElementById('playerModal');
     playerModalInstance = new bootstrap.Modal(modalEl);
     playerModalInstance.show();
-    video.play().catch(e => console.log("Autoplay blocked", e));
+    video.play().then(() => {
+        // FIX: Change icon to pause when autoplay starts
+        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    }).catch(e => console.log("Autoplay blocked", e));
 }
 
 function closePlayer() {
@@ -729,9 +732,8 @@ playBtn.addEventListener('click', () => {
     }
 });
 
-video.addEventListener('click', (e) => {
-    if(e.target === video) playBtn.click();
-});
+// FIX: Removed the click listener that toggles play on tap
+// video.addEventListener('click', (e) => { if(e.target === video) playBtn.click(); });
 
 progressBg.addEventListener('click', (e) => {
     const rect = progressBg.getBoundingClientRect();
