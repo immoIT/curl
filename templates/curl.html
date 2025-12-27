@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="light">
 <head>
@@ -11,25 +12,139 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+
     <style>
-        /* --- Dashboard Styles --- */
-        :root { --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
-        body { background-color: #f3f4f6; transition: background-color 0.3s ease; }
-        [data-bs-theme="dark"] body { background-color: #111827; }
-        .navbar { background: var(--primary-gradient); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
-        .card { border: none; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1.5rem; }
-        .card-header { background: transparent; border-bottom: 1px solid rgba(0,0,0,0.05); padding: 1.25rem; font-weight: 600; }
-        .download-item { background: white; border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1rem; border-left: 5px solid #6366f1; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        [data-bs-theme="dark"] .download-item { background: #1f2937; border-color: #818cf8; color: white; }
-        .download-item.paused { border-left-color: #f59e0b; opacity: 0.9; }
-        .download-item.error { border-left-color: #ef4444; }
-        .progress-bar { background: var(--primary-gradient); }
-        .saved-file-card:hover { background-color: rgba(99, 102, 241, 0.05); border-left: 3px solid #6366f1; }
+        /* =========================================
+           1. DASHBOARD STYLES (RESTORED)
+           ========================================= */
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+        }
+        
+        body {
+            background-color: #f3f4f6;
+            transition: background-color 0.3s ease;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        [data-bs-theme="dark"] body {
+            background-color: #111827;
+        }
+
+        /* Navbar */
+        .navbar {
+            background: var(--primary-gradient);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Cards */
+        .card {
+            border: none;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            margin-bottom: 1.5rem;
+            background: white;
+            transition: transform 0.2s;
+        }
+        [data-bs-theme="dark"] .card {
+            background: #1f2937;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            padding: 1.25rem;
+            font-weight: 600;
+            color: var(--bs-body-color);
+        }
+        [data-bs-theme="dark"] .card-header {
+            border-bottom-color: rgba(255,255,255,0.05);
+        }
+
+        /* Active Download Items - RESTORED LOOK */
+        .download-item {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border-left: 5px solid #6366f1;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        [data-bs-theme="dark"] .download-item {
+            background: #1f2937; /* Darker bg for items */
+            border-color: #818cf8;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .download-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .download-item.paused {
+            border-left-color: #f59e0b;
+            opacity: 0.9;
+        }
+
+        .download-item.error {
+            border-left-color: #ef4444;
+        }
+
+        /* Progress Bars */
+        .progress {
+            height: 0.75rem;
+            border-radius: 1rem;
+            background-color: #e5e7eb;
+            margin: 0.75rem 0;
+            overflow: hidden;
+        }
+        [data-bs-theme="dark"] .progress {
+            background-color: #374151;
+        }
+
+        .progress-bar {
+            background: var(--primary-gradient);
+            border-radius: 1rem;
+            transition: width 0.3s ease;
+        }
+
+        .download-meta {
+            font-size: 0.85rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        [data-bs-theme="dark"] .download-meta {
+            color: #9ca3af;
+        }
+
+        /* File List Items */
+        .saved-file-card {
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .saved-file-card:hover {
+            background-color: rgba(99, 102, 241, 0.05);
+            border-left-color: #6366f1;
+        }
+        [data-bs-theme="dark"] .saved-file-card:hover {
+            background-color: rgba(99, 102, 241, 0.15);
+        }
+
+        /* Inputs & Animations */
         .shake-invalid { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; border-color: #dc3545 !important; }
         @keyframes shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } }
+        
+        .rotate-anim { animation: bolt-spin 1s linear infinite; display: inline-block; }
+        @keyframes bolt-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
         /* =========================================
-           MX PLAYER STYLES (Ported from test.py) 
+           2. MX PLAYER STYLES (UNCHANGED)
            ========================================= */
         .player-wrapper {
             position: relative;
@@ -66,50 +181,30 @@
             background: #000;
         }
 
-        /* Buffering Spinner */
+        /* Spinner */
         .spinner {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-left-color: #e50914;
-            border-radius: 50%;
-            width: 40px; height: 40px;
-            animation: spin 1s linear infinite;
-            display: none;
-            z-index: 50; pointer-events: none;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            border: 3px solid rgba(255, 255, 255, 0.1); border-left-color: #e50914;
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite; display: none; z-index: 50; pointer-events: none;
         }
         @keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
 
-        /* UI Overlays */
         .ui-hidden { opacity: 0; pointer-events: none; }
 
         .video-title {
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            padding: 10px 15px; 
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
-            color: #e0e0e0;
-            font-size: clamp(10px, 1.5vw, 13px); 
-            font-weight: 500;
-            letter-spacing: 0.5px;
-            z-index: 100;
-            transition: opacity 0.3s ease;
-            pointer-events: none; 
+            position: absolute; top: 0; left: 0; right: 0;
+            padding: 10px 15px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            color: #e0e0e0; font-size: clamp(10px, 1.5vw, 13px); font-weight: 500;
+            z-index: 100; transition: opacity 0.3s ease; pointer-events: none; 
             text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         }
 
         .controls-container {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
+            position: absolute; bottom: 0; left: 0; right: 0;
             background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-            padding: 5px 2vw 15px 2vw;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            z-index: 100;
-            transition: opacity 0.3s ease;
-            width: 100%;
+            padding: 5px 2vw 15px 2vw; display: flex; flex-direction: column; gap: 8px;
+            z-index: 100; transition: opacity 0.3s ease; width: 100%;
         }
 
         .btn-row { display: flex; justify-content: space-between; align-items: center; width: 100%; }
@@ -117,27 +212,20 @@
 
         .controls-container button {
             background: none; border: none; color: #ddd; cursor: pointer;
-            font-size: clamp(12px, 2vw, 18px); 
-            padding: 5px; 
-            transition: transform 0.2s;
-            min-width: 25px; 
-            text-align: center;
-            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(12px, 2vw, 18px); padding: 5px; 
+            transition: transform 0.2s; min-width: 25px; 
+            text-align: center; display: flex; align-items: center; justify-content: center;
         }
         .controls-container button:hover { color: #fff; transform: scale(1.1); }
         
         .btn-text {
-            font-size: clamp(9px, 1.2vw, 12px); 
-            font-weight: 600; font-family: sans-serif;
-            border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; 
-            padding: 1px 4px; white-space: nowrap;
+            font-size: clamp(9px, 1.2vw, 12px); font-weight: 600; font-family: sans-serif;
+            border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; padding: 1px 4px; white-space: nowrap;
         }
 
         .duration-layer {
-            display: flex; align-items: center; gap: 10px;
-            color: #ddd; 
-            font-size: clamp(10px, 1.2vw, 12px); 
-            font-family: monospace;
+            display: flex; align-items: center; gap: 10px; color: #ddd; 
+            font-size: clamp(10px, 1.2vw, 12px); font-family: monospace;
         }
         .progress-bg {
             flex-grow: 1; height: 4px; background: rgba(255,255,255,0.2);
@@ -158,16 +246,14 @@
         .volume-slider-container {
             position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
             width: 24px; height: 80px; background: #222; border-radius: 6px;
-            display: flex; justify-content: center; visibility: hidden; opacity: 0; transition: 0.2s;
-            margin-bottom: 8px;
+            display: flex; justify-content: center; visibility: hidden; opacity: 0; transition: 0.2s; margin-bottom: 8px;
         }
         .volume-wrapper:hover .volume-slider-container { visibility: visible; opacity: 1; }
         
         .popup-menu {
             position: absolute; bottom: 130%; background: rgba(20,20,20,0.95);
             border-radius: 5px; padding: 8px; display: none; flex-direction: column; gap: 4px;
-            min-width: 140px; z-index: 200;
-            margin-bottom: 12px;
+            min-width: 140px; z-index: 200; margin-bottom: 12px;
         }
         .popup-menu.active { display: flex; }
         .menu-opt { padding: 4px; color: #ccc; cursor: pointer; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -184,7 +270,7 @@
                 <i class="bi bi-lightning-charge-fill me-2"></i>Bolt Downloader
             </a>
             <div class="d-flex align-items-center gap-3">
-                <span id="ramUsage" class="badge ram-badge text-white d-none d-md-inline-block">RAM: --%</span>
+                <span id="ramUsage" class="badge bg-white text-dark bg-opacity-10 text-white d-none d-md-inline-block" style="backdrop-filter: blur(5px);">RAM: --%</span>
 
                 <div class="form-check form-switch text-white">
                     <input class="form-check-input" type="checkbox" id="darkModeToggle">
@@ -206,6 +292,7 @@
                     <h5 class="fw-bold mb-0"><i class="bi bi-activity me-2"></i>Active Downloads</h5>
                     <span class="badge bg-primary rounded-pill" id="activeCount">0</span>
                 </div>
+                
                 <div id="activeDownloads">
                     <div id="emptyState" class="text-center py-5 text-muted opacity-50">
                         <i class="bi bi-cloud-download display-1"></i>
@@ -384,4 +471,3 @@
     <script src="{{ url_for('static', filename='curl.js') }}"></script>
 </body>
 </html>
-
