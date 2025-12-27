@@ -196,6 +196,11 @@ def format_time(seconds):
 
 # --- BLUEPRINT ROUTES ---
 
+@curl_bp.route("/healthz", methods=["GET"])
+def health_check():
+    """Simple health check endpoint."""
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
 @curl_bp.route("/", methods=["GET"])
 def index():
     return render_template('curl.html')
