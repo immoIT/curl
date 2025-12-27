@@ -284,25 +284,39 @@ def stream_drive_content(file_id, as_attachment=False):
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     
-    # Forward Range header only for streaming
+    # Forward Range header only for streaming (not download)
     range_header = request.headers.get('Range', None)
     if not as_attachment and range_header: 
         headers['Range'] = range_header
 
     req = requests.get(url, headers=headers, stream=True)
     
-    # SRT -> VTT conversion for streaming
+    # SRT -> VTT conversion for streaming ONLY
     if not as_attachment and filename.endswith('.srt'):
         return Response(srt_to_vtt(req.content), content_type="text/vtt")
     
     content_type = req.headers.get("Content-Type")
     if filename.endswith('.vtt'): content_type = "text/vtt"
     
-    excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection', 'authorization']
+    # Headers to exclude (We MUST exclude Content-Disposition to set our own)
+    excluded_headers = ['content-encoding', 'transfer-encoding', 'connection', 'authorization', 'content-disposition']
+    
+    # If downloading, we want Content-Length so browser shows size.
+    # If streaming with conversion (SRT->VTT), size changes, so we shouldn't pass it.
+    if not as_attachment and filename.endswith('.srt'):
+        excluded_headers.append('content-length')
+        
     response_headers = [(n, v) for (n, v) in req.headers.items() if n.lower() not in excluded_headers]
 
     if as_attachment:
-        response_headers.append(('Content-Disposition', f'attachment; filename="{filename}"'))
+        # Force the correct filename and attachment type
+        # Handle quotes in filename safely
+        safe_filename = filename.replace('"', '\\"')
+        response_headers.append(('Content-Disposition', f'attachment; filename="{safe_filename}"'))
+    else:
+        # For streaming, nice to have
+        safe_filename = filename.replace('"', '\\"')
+        response_headers.append(('Content-Disposition', f'inline; filename="{safe_filename}"'))
 
     return Response(stream_with_context(req.iter_content(chunk_size=65536)), 
                    status=req.status_code, headers=response_headers, content_type=content_type)
