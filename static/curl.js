@@ -522,33 +522,34 @@ function openPlayer(filename, driveId = null) {
     qualityBtn.innerHTML = '<span class="btn-text">HD</span>';
     const menu = document.getElementById('qualityMenu');
     if(menu) {
-        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>
-                          <div class="menu-opt" onclick="setQuality('720p', this)">720p</div>
-                          <div class="menu-opt" onclick="setQuality('480p', this)">480p</div>`;
+        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>`;
     }
 
-    // Determine Original Resolution via API
+    // Determine Original Resolution via API (OPENCV)
     if (driveId) {
         fetch(`/video_meta/${driveId}`)
             .then(r => r.json())
             .then(data => {
                 if (data.width && data.height) {
-                    const h = data.height;
+                    const h = parseInt(data.height);
                     let label = 'Original';
                     let badge = 'HD';
+                    let levels = ['original'];
                     
-                    if (h >= 2160) { badge = '4K'; label = 'Original (4K)'; }
-                    else if (h >= 1440) { badge = '2K'; label = 'Original (2K)'; }
-                    else if (h >= 1080) { badge = '1080p'; label = 'Original (1080p)'; }
-                    else if (h >= 720) { badge = '720p'; label = 'Original (720p)'; }
-                    else { badge = h + 'p'; label = `Original (${h}p)`; }
+                    // Logic: Add quality levels based on source height
+                    if (h >= 2160) { badge = '4K'; levels.push('1080p', '720p', '480p'); }
+                    else if (h >= 1440) { badge = '2K'; levels.push('1080p', '720p', '480p'); }
+                    else if (h >= 1080) { badge = '1080p'; levels.push('720p', '480p'); }
+                    else if (h >= 720) { badge = '720p'; levels.push('480p'); }
+                    else { badge = h + 'p'; }
 
                     qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
                     
                     if(menu) {
-                        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">${label}</div>
-                                          <div class="menu-opt" onclick="setQuality('720p', this)">720p</div>
-                                          <div class="menu-opt" onclick="setQuality('480p', this)">480p</div>`;
+                        menu.innerHTML = levels.map(q => {
+                            const txt = q === 'original' ? `Original (${badge})` : q;
+                            return `<div class="menu-opt ${q==='original'?'selected':''}" onclick="setQuality('${q}', this)">${txt}</div>`;
+                        }).join('');
                     }
                 }
             })
@@ -560,7 +561,7 @@ function openPlayer(filename, driveId = null) {
     playerModalInstance.show();
     video.play().then(() => {
         playBtn.innerHTML = '<i class="fas fa-pause"></i>';
-        showControls(); // Ensure controls start visible then fade if playing
+        showControls(); 
     }).catch(e => console.log("Autoplay blocked", e));
 }
 
@@ -593,12 +594,10 @@ function setQuality(qual, el) {
     toggleMenu('qualityMenu');
     document.querySelectorAll('#qualityMenu .menu-opt').forEach(opt => opt.classList.remove('selected'));
     el.classList.add('selected');
-    // Note: Actual quality switching would require backend transcoding support
-    // This just updates the UI to reflect user intent
+    
     if (qual === 'original') {
-         // Re-fetch original label if possible, or just reset icon
-         // For now simple reset:
-         qualityBtn.innerHTML = '<span class="btn-text">HD</span>'; 
+         // Reset to original icon if we saved it, or just generic
+         // qualityBtn.innerHTML = ... (logic to restore badge)
     } else {
          qualityBtn.innerHTML = '<span class="btn-text">' + qual + '</span>';
     }
