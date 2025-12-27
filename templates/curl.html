@@ -155,206 +155,153 @@
             box-shadow: 0 0 0 0.25rem rgba(220, 53, 69, 0.25) !important;
         }
 
-        /* --- Custom Video Player Styles --- */
-        .custom-player-wrapper {
+        /* =========================================
+           MX PLAYER STYLES (Ported from test.py) 
+           ========================================= */
+        .player-wrapper {
             position: relative;
             background: #000;
             width: 100%;
             border-radius: 8px;
             overflow: hidden;
             aspect-ratio: 16/9;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-        }
-        video {
-            width: 100%;
-            height: 100%;
-            display: block;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
         }
         
-        .player-controls {
+        .player-wrapper:fullscreen {
+            border-radius: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Center Rotator */
+        .content-rotator {
+            width: 100%; height: 100%;
+            position: relative;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        video {
+            width: 100%; height: 100%;
+            display: block;
+            object-fit: contain;
+        }
+
+        /* Title Overlay */
+        .video-title {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            top: 0; left: 0; right: 0;
+            padding: 15px 20px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            color: #e0e0e0;
+            font-size: 1.1rem;
+            font-weight: 500;
+            z-index: 50;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+
+        /* Controls Overlay */
+        .controls-container {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
             background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
-            padding: 20px 15px 10px;
-            opacity: 0;
-            transition: opacity 0.3s;
+            padding: 15px 20px 20px;
             display: flex;
             flex-direction: column;
             gap: 10px;
-            z-index: 10;
+            z-index: 50;
+            transition: opacity 0.3s ease;
         }
-        .custom-player-wrapper:hover .player-controls,
-        .custom-player-wrapper.paused .player-controls {
-            opacity: 1;
-        }
-
-        /* --- Custom Close Button (Cross Icon) --- */
-        .custom-close-btn {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            z-index: 20;
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background: rgba(0, 0, 0, 0.6);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(4px);
-            font-size: 16px;
-        }
-        .custom-close-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(1.1);
-        }
-
-        /* Hide Close Button when NOT paused (Playing) */
-        .custom-player-wrapper:not(.paused) .custom-close-btn {
-            opacity: 0;
+        
+        .ui-hidden {
+            opacity: 0 !important;
             pointer-events: none;
         }
-        
-        /* Custom Progress Bar */
-        .progress-range {
-            width: 100%;
-            height: 6px;
-            -webkit-appearance: none;
-            background: rgba(255,255,255,0.2);
-            border-radius: 3px;
-            outline: none;
-            cursor: pointer;
-            transition: height 0.1s;
+
+        .btn-row {
+            display: flex; justify-content: space-between; align-items: center;
         }
-        .progress-range:hover { height: 8px; }
-        .progress-range::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #6366f1;
-            cursor: pointer;
-            border: 2px solid white;
+        .left-btns, .right-btns {
+            display: flex; align-items: center; gap: 15px;
         }
-        
-        .controls-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            color: white;
+
+        /* Player Buttons */
+        .controls-container button {
+            background: none; border: none; color: #ddd; 
+            font-size: 1.3rem; cursor: pointer; padding: 0;
+            transition: transform 0.2s, color 0.2s;
+            display: flex; align-items: center;
         }
-        
-        .btn-player {
-            background: none;
-            border: none;
-            color: white;
-            cursor: pointer;
-            padding: 0 8px;
-            transition: transform 0.1s, color 0.2s;
+        .controls-container button:hover {
+            color: #fff; transform: scale(1.1);
+        }
+
+        /* Progress Bar */
+        .duration-layer {
+            display: flex; align-items: center; gap: 12px;
+            color: #ccc; font-family: monospace; font-size: 0.9rem;
+        }
+        .progress-bg {
+            flex-grow: 1; height: 5px; background: rgba(255,255,255,0.2);
+            border-radius: 3px; cursor: pointer; position: relative;
+            transition: height 0.2s;
+        }
+        .progress-bg:hover { height: 7px; }
+        .progress-fill {
+            height: 100%; background: #6366f1; width: 0%; border-radius: 3px;
             position: relative;
         }
-        .btn-player:hover { color: #818cf8; transform: scale(1.1); }
-        .btn-player:active { transform: scale(0.95); }
-        
-        .time-display {
-            font-size: 12px;
-            font-family: monospace;
-            color: #ddd;
-            margin-left: 10px;
+        .progress-fill::after {
+            content: ''; position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+            width: 12px; height: 12px; background: #fff; border-radius: 50%;
+            opacity: 0; transition: 0.2s;
         }
-        
-        .volume-container {
-            display: flex;
-            align-items: center;
-            width: 100px;
-            margin-left: 10px;
-            gap: 5px;
-        }
-        .volume-range {
-            width: 100%;
-            height: 4px;
-            -webkit-appearance: none;
-            background: rgba(255,255,255,0.3);
-            border-radius: 2px;
-        }
-        .volume-range::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 10px;
-            height: 10px;
-            background: white;
-            border-radius: 50%;
-            cursor: pointer;
-        }
-        
-        .speed-select {
-            background: rgba(255,255,255,0.1);
-            border: 1px solid rgba(255,255,255,0.2);
-            color: white;
-            font-size: 12px;
-            padding: 2px 5px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .speed-select option { background: #222; color: white; }
+        .progress-bg:hover .progress-fill::after { opacity: 1; }
 
-        /* --- Audio/Quality Track Menu --- */
-        .audio-menu-container {
-            position: relative;
-            display: none; /* Hidden by default, shown via JS if tracks exist */
+        /* Menus (Speed, Audio, Quality) */
+        .popup-menu {
+            position: absolute; bottom: 130%; background: rgba(20,20,20,0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px; padding: 5px; display: none;
+            flex-direction: column; min-width: 100px; z-index: 100;
         }
-        .audio-tracks-popup {
-            position: absolute;
-            bottom: 140%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.9);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            padding: 5px 0;
-            min-width: 120px;
-            display: none;
-            flex-direction: column;
-            z-index: 25;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            max-height: 200px;
-            overflow-y: auto;
+        .popup-menu.active { display: flex; }
+        .menu-opt {
+            padding: 6px 12px; color: #ccc; cursor: pointer; font-size: 0.85rem;
+            border-radius: 4px; white-space: nowrap;
         }
-        .audio-tracks-popup.show {
-            display: flex;
+        .menu-opt:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .menu-opt.selected { color: #6366f1; font-weight: bold; }
+
+        /* Volume Slider */
+        .volume-wrapper { position: relative; }
+        .volume-slider-container {
+            position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+            width: 30px; height: 100px; background: #222; border-radius: 6px;
+            display: none; justify-content: center; padding-top: 10px;
+            margin-bottom: 10px;
         }
-        .track-item {
-            padding: 6px 15px;
-            color: #ddd;
-            font-size: 12px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: background 0.2s;
-            text-align: left;
-        }
-        .track-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: white;
-        }
-        .track-item.active {
-            color: #6366f1;
-            font-weight: bold;
-            background: rgba(99, 102, 241, 0.1);
+        .volume-wrapper:hover .volume-slider-container { display: flex; }
+        #volSlider {
+            writing-mode: bt-lr; -webkit-appearance: slider-vertical;
+            width: 6px; height: 80px; background: rgba(255,255,255,0.2);
+            border-radius: 3px; cursor: pointer;
         }
 
-        /* Fullscreen tweak */
-        :fullscreen .custom-player-wrapper {
-            width: 100vw;
-            height: 100vh;
-            border-radius: 0;
+        /* Close Button */
+        .custom-close-btn {
+            position: absolute; top: 15px; right: 20px; z-index: 2000;
+            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+            color: white; border-radius: 50%; width: 36px; height: 36px;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s; backdrop-filter: blur(4px);
         }
+        .custom-close-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
 
-        /* --- Custom Input Sizes --- */
+        /* Custom Input Sizes */
         #url, #url::placeholder, #gdriveUrl, #gdriveUrl::placeholder {
             font-size: 0.95rem; 
         }
@@ -362,7 +309,6 @@
             opacity: 0.6;
         }
         
-        /* --- RAM Badge --- */
         .ram-badge {
             font-family: monospace;
             background-color: rgba(255, 255, 255, 0.2);
@@ -500,65 +446,67 @@
     </div>
 
     <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-dialog modal-dialog-centered modal-xl" style="max-width: 95vw;">
             <div class="modal-content bg-transparent border-0 shadow-none">
-                <div class="modal-body p-0">
-                    <div class="custom-player-wrapper paused" id="videoContainer">
-                        
-                        <button class="custom-close-btn" onclick="closePlayer()" title="Close Player">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
+                <div class="modal-body p-0 position-relative">
+                    
+                    <button class="custom-close-btn" onclick="closePlayer()" title="Close Player">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
 
-                        <video id="mediaPlayer" preload="metadata" playsinline>
-                            Your browser does not support the video tag.
-                        </video>
-                        <div class="player-controls">
-                            <input type="range" class="progress-range" id="videoProgress" min="0" max="100" value="0">
+                    <div class="player-wrapper" id="wrapper">
+                        <div class="spinner" id="bufferingIcon"></div>
+                        
+                        <div class="content-rotator" id="rotator">
+                            <div class="video-title" id="videoTitle">Media Player</div>
+
+                            <video id="video" crossorigin="anonymous" playsinline></video>
                             
-                            <div class="controls-row mt-2">
-                                <div class="d-flex align-items-center">
-                                    <button class="btn-player" id="playPauseBtn"><i class="bi bi-play-fill fs-4"></i></button>
-                                    
-                                    <div class="volume-container">
-                                        <button class="btn-player" id="muteBtn"><i class="bi bi-volume-up-fill"></i></button>
-                                        <input type="range" class="volume-range" id="volumeSlider" min="0" max="1" step="0.1" value="1">
+                            <div class="controls-container ui-hidden" id="controls">
+                                <div class="btn-row">
+                                    <div class="left-btns">
+                                        <button id="playBtn" title="Play/Pause"><i class="bi bi-play-fill"></i></button>
+                                        
+                                        <div class="volume-wrapper">
+                                            <button id="muteBtn" title="Mute/Unmute"><i class="bi bi-volume-up-fill"></i></button>
+                                            <div class="volume-slider-container">
+                                                <input type="range" id="volSlider" min="0" max="1" step="0.1" value="1">
+                                            </div>
+                                        </div>
+
+                                        <div style="position:relative">
+                                            <button onclick="toggleMenu('audioMenu')" title="Audio Tracks"><i class="bi bi-music-note-list"></i></button>
+                                            <div class="popup-menu" id="audioMenu" style="left:0;"></div>
+                                        </div>
                                     </div>
-                                    
-                                    <span class="time-display">
-                                        <span id="currTime">00:00</span> / <span id="totalTime">00:00</span>
-                                    </span>
+
+                                    <div class="right-btns">
+                                        <div style="position:relative">
+                                            <button id="speedBtn" onclick="toggleMenu('speedMenu')" title="Playback Speed"><i class="bi bi-speedometer2"></i></button>
+                                            <div class="popup-menu" id="speedMenu" style="right:0;">
+                                                <div class="menu-opt" onclick="setSpeed(0.5, this)">0.5x</div>
+                                                <div class="menu-opt selected" onclick="setSpeed(1.0, this)">Normal</div>
+                                                <div class="menu-opt" onclick="setSpeed(1.5, this)">1.5x</div>
+                                                <div class="menu-opt" onclick="setSpeed(2.0, this)">2.0x</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <button onclick="togglePiP()" title="Picture in Picture"><i class="bi bi-pip"></i></button>
+                                        <button onclick="toggleFullscreen()" title="Fullscreen"><i class="bi bi-fullscreen"></i></button>
+                                    </div>
                                 </div>
                                 
-                                <div class="d-flex align-items-center gap-2">
-                                    <div class="audio-menu-container" id="qualityMenuWrapper">
-                                        <button class="btn-player" id="qualityBtn" title="Quality">
-                                            <i class="bi bi-gear-fill"></i>
-                                        </button>
-                                        <div class="audio-tracks-popup" id="qualityList">
-                                            </div>
+                                <div class="duration-layer">
+                                    <span id="currTime">00:00</span>
+                                    <div class="progress-bg" id="progressBg">
+                                        <div class="progress-fill" id="progressFill"></div>
                                     </div>
-
-                                    <div class="audio-menu-container" id="audioTrackWrapper">
-                                        <button class="btn-player" id="audioTrackBtn" title="Audio">
-                                            <i class="bi bi-music-note-list"></i>
-                                        </button>
-                                        <div class="audio-tracks-popup" id="audioTracksList">
-                                            </div>
-                                    </div>
-
-                                    <select class="speed-select" id="playbackRate">
-                                        <option value="0.5">0.5x</option>
-                                        <option value="1" selected>1x</option>
-                                        <option value="1.25">1.25x</option>
-                                        <option value="1.5">1.5x</option>
-                                        <option value="2">2x</option>
-                                    </select>
-                                    <button class="btn-player" id="pipBtn" title="Picture in Picture"><i class="bi bi-pip"></i></button>
-                                    <button class="btn-player" id="fullscreenBtn" title="Fullscreen"><i class="bi bi-fullscreen"></i></button>
+                                    <span id="durTime">00:00</span>
                                 </div>
                             </div>
                         </div>
                     </div>
+
                 </div>
             </div>
         </div>
