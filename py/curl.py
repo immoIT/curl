@@ -27,7 +27,11 @@ download_history = []
 SCOPES = ['https://www.googleapis.com/auth/drive'] # Full drive scope for streaming
 TOKEN_PATH = 'token.json'
 
+<<<<<<< HEAD
 # --- GOOGLE DRIVE UTILITIES ---
+=======
+# --- GOOGLE DRIVE UTILITIES (From test.py) ---
+>>>>>>> 4979b434933d87d509b1511b4ad5da8a3e0cc344
 
 def get_credentials():
     """Gets valid user credentials from storage."""
@@ -165,6 +169,7 @@ def format_speed(speed):
     elif speed < 1024**2: return f"{speed/1024:.1f} KB/s"
     else: return f"{speed/1024**2:.1f} MB/s"
 
+<<<<<<< HEAD
 def format_time(seconds):
     """Formats seconds into HH:MM:SS or MM:SS."""
     if not seconds or seconds < 0: return "--"
@@ -177,6 +182,8 @@ def format_time(seconds):
     except:
         return "--"
 
+=======
+>>>>>>> 4979b434933d87d509b1511b4ad5da8a3e0cc344
 # --- BLUEPRINT ROUTES ---
 
 @curl_bp.route("/", methods=["GET"])
@@ -379,17 +386,24 @@ def download_with_smart_filename(controller, socketio_instance):
                             speed = (downloaded - resume_byte_pos) / max(now - start_time, 0.1)
                             pct = (downloaded / total_size * 100) if total_size else 0
                             
+<<<<<<< HEAD
                             # Calculate ETA
                             remaining_bytes = total_size - downloaded
                             eta_seconds = remaining_bytes / speed if speed > 0 else 0
                             eta_str = format_time(eta_seconds)
                             
+=======
+>>>>>>> 4979b434933d87d509b1511b4ad5da8a3e0cc344
                             status = {
                                 "download_id": download_id,
                                 "filename": filename,
                                 "percentage": pct,
                                 "speed": format_speed(speed),
+<<<<<<< HEAD
                                 "eta": eta_str,
+=======
+                                "eta": "--",
+>>>>>>> 4979b434933d87d509b1511b4ad5da8a3e0cc344
                                 "downloaded": downloaded,
                                 "total_size": total_size
                             }
