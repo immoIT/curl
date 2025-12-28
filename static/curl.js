@@ -120,6 +120,9 @@ function updateDownloadUI(data) {
     const statusText = el.querySelector('.status-text');
     const metaIcon = el.querySelector('.meta-icon');
 
+    // Store phase for cancel logic
+    el.setAttribute('data-phase', data.phase);
+
     if (data.phase === 'uploading') {
         bar.classList.add('progress-bar-striped', 'progress-bar-animated');
         bar.classList.remove('bg-primary');
@@ -146,6 +149,7 @@ function createDownloadItem(data) {
     const div = document.createElement('div');
     div.id = `download-${data.download_id}`;
     div.className = 'download-item';
+    div.setAttribute('data-phase', 'downloading'); // Default
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-start mb-2">
             <div>
@@ -264,16 +268,24 @@ function pauseDownload(id) {
 function resumeDownload(id) { socket.emit('resume_download', {download_id: id}); }
 
 function cancelDownload(id) { 
+    const el = document.getElementById(`download-${id}`);
+    const isUploading = el && el.getAttribute('data-phase') === 'uploading';
+    
+    const title = isUploading ? 'Cancel Uploading?' : 'Cancel Download?';
+    const msg = isUploading 
+        ? 'Stop uploading to Google Drive? The file will be lost.' 
+        : 'Are you sure? The partial file will be deleted.';
+    const btnText = isUploading ? 'Cancel Upload' : 'Cancel Download';
+
     showConfirm({
-        title: 'Cancel Download?',
-        message: 'Are you sure? The partial file will be deleted.',
-        btnText: 'Cancel Download',
+        title: title,
+        message: msg,
+        btnText: btnText,
         btnClass: 'btn-danger',
         iconClass: 'bi-x-circle text-danger'
     }, () => {
         cancelledIds.add(id);
         socket.emit('cancel_download', {download_id: id});
-        const el = document.getElementById(`download-${id}`);
         if(el) {
             el.remove();
             activeDownloadCount--;
@@ -535,7 +547,6 @@ function openPlayer(filename, driveId = null) {
                     const h = parseInt(data.height);
                     let badge = 'HD';
                     
-                    // Logic: Determine Badge based on source height
                     if (h >= 2160) badge = '4K';
                     else if (h >= 1440) badge = '2K';
                     else if (h >= 1080) badge = '1080p';
@@ -694,13 +705,28 @@ function toggleSub(enable, el) {
 }
 
 // --- 4. Audio Tracks ---
+const langMap = {
+    'en': 'English', 'eng': 'English',
+    'hi': 'Hindi', 'hin': 'Hindi',
+    'jp': 'Japanese', 'jpn': 'Japanese',
+    'ta': 'Tamil', 'tam': 'Tamil',
+    'te': 'Telugu', 'tel': 'Telugu',
+    'ml': 'Malayalam', 'mal': 'Malayalam',
+    'kn': 'Kannada', 'kan': 'Kannada',
+    'es': 'Spanish', 'spa': 'Spanish',
+    'fr': 'French', 'fra': 'French'
+};
+
 function loadAudioTracks() {
     const menu = document.getElementById('audioMenu');
     if (video.audioTracks && video.audioTracks.length > 0) {
         menu.innerHTML = ''; 
         for (let i = 0; i < video.audioTracks.length; i++) {
             const track = video.audioTracks[i];
-            const label = track.label || track.language || `Track ${i + 1}`;
+            // Format Language using map or default
+            let lang = (track.language || '').toLowerCase();
+            let label = track.label || langMap[lang] || lang || `Track ${i + 1}`;
+            
             const div = document.createElement('div');
             div.className = 'menu-opt';
             if (track.enabled) div.classList.add('selected');
@@ -734,7 +760,6 @@ function showControls() {
     wrapper.style.cursor = "default";
     clearTimeout(hideTimer);
     
-    // Only auto-hide if PLAYING and NO MENU is active
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
@@ -745,6 +770,9 @@ function showControls() {
     }
 }
 
+// 3) RESET TIMER ON ANY CONTROL CLICK
+controls.addEventListener('click', () => showControls());
+
 wrapper.addEventListener('mousemove', showControls);
 wrapper.addEventListener('click', (e) => {
     if(!e.target.closest('button') && !e.target.closest('.popup-menu') && !e.target.closest('.progress-bg')) {
@@ -752,7 +780,8 @@ wrapper.addEventListener('click', (e) => {
     }
 });
 
-playBtn.addEventListener('click', () => {
+playBtn.addEventListener('click', (e) => {
+    e.stopPropagation(); // Stop bubble so wrapper click doesn't fire immediately
     if (video.paused) { 
         video.play(); 
         playBtn.innerHTML = '<i class="fas fa-pause"></i>'; 
@@ -760,7 +789,6 @@ playBtn.addEventListener('click', () => {
     } else { 
         video.pause(); 
         playBtn.innerHTML = '<i class="fas fa-play"></i>'; 
-        // PAUSE state: Keep controls visible (clear any hide timer)
         clearTimeout(hideTimer); 
         controls.classList.remove('ui-hidden'); 
         videoTitle.classList.remove('ui-hidden');
