@@ -10,7 +10,7 @@ import psutil
 import io
 import threading
 import cv2 
-import tempfile 
+import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
@@ -211,6 +211,11 @@ def format_time(seconds):
 @curl_bp.route("/", methods=["GET"])
 def index():
     return render_template('curl.html')
+
+# --- HEALTH CHECK ROUTE ---
+@curl_bp.route("/healthz", methods=["GET"])
+def healthz():
+    return jsonify({"status": "ok"}), 200
 
 @curl_bp.route("/detect_filename", methods=["POST"])
 def detect_filename_route():
