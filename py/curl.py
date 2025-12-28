@@ -10,7 +10,7 @@ import psutil
 import io
 import threading
 import cv2 
-import tempfile
+import tempfile 
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
@@ -131,6 +131,18 @@ def delete_drive_file(file_id):
 
 # --- LOCAL FILE UTILITIES ---
 
+def extract_gdrive_id(url):
+    """Extracts Google Drive File ID from URL."""
+    patterns = [
+        r'/file/d/([^/]+)',
+        r'id=([^&]+)',
+        r'/open\?id=([^&]+)'
+    ]
+    for p in patterns:
+        match = re.search(p, url)
+        if match: return match.group(1)
+    return None
+
 def extract_filename_from_headers(response_headers):
     try:
         content_disposition = response_headers.get('content-disposition', '')
@@ -205,6 +217,16 @@ def detect_filename_route():
     data = request.get_json()
     url = data.get('url', '')
     if not url: return jsonify({'success': False})
+    
+    # 1. Check if it's a Google Drive Link
+    gid = extract_gdrive_id(url)
+    if gid:
+        meta = get_file_metadata(gid)
+        name = meta.get('name')
+        if name and name != "Unknown":
+            return jsonify({'success': True, 'filename': name})
+            
+    # 2. Normal URL Detection
     try:
         head = requests.head(url, timeout=5, allow_redirects=True)
         name = extract_filename_from_headers(head.headers)
@@ -274,7 +296,6 @@ def get_video_meta(file_id):
     headers = {"Authorization": f"Bearer {creds.token}"}
     
     try:
-        # 1. Download header chunk (10MB) to temp file
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
             tmp_path = tmp_file.name
             with requests.get(stream_url, headers=headers, stream=True) as r:
@@ -283,7 +304,6 @@ def get_video_meta(file_id):
                     if tmp_file.tell() > 10 * 1024 * 1024: 
                         break
         
-        # 2. Probe local chunk with OpenCV
         width, height = 0, 0
         cap = cv2.VideoCapture(tmp_path)
         if cap.isOpened():
@@ -291,11 +311,9 @@ def get_video_meta(file_id):
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
         
-        # 3. Clean up
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-        # 4. Fallback to API Metadata
         if width == 0 or height == 0:
             meta = get_file_metadata(file_id)
             video_meta = meta.get('videoMediaMetadata', {})
@@ -425,7 +443,22 @@ def download_with_smart_filename(controller, socketio_instance):
     current_run_id = controller.active_run_id
     
     try:
-        # --- DOWNLOAD PHASE ---
+        # --- 1. HANDLE GDRIVE LINKS AUTOMATICALLY ---
+        gid = extract_gdrive_id(url)
+        if gid:
+            creds = get_credentials()
+            if creds:
+                # Switch to API URL
+                url = f"https://www.googleapis.com/drive/v3/files/{gid}?alt=media"
+                # Add Auth Header to the session
+                controller.session.headers.update({"Authorization": f"Bearer {creds.token}"})
+                
+                # Fetch filename via API if not set
+                if not controller.final_filename:
+                    meta = get_file_metadata(gid)
+                    controller.final_filename = meta.get('name')
+
+        # --- 2. DETERMINE FILENAME (If not set) ---
         if not controller.final_filename:
             try:
                 head = controller.session.head(url, timeout=10, allow_redirects=True)
@@ -438,6 +471,7 @@ def download_with_smart_filename(controller, socketio_instance):
 
         if controller.is_cancelled: return
 
+        # --- 3. DOWNLOAD PHASE ---
         resume_byte_pos = os.path.getsize(filepath) if os.path.exists(filepath) else 0
         headers = {}
         if resume_byte_pos > 0: headers["Range"] = f"bytes={resume_byte_pos}-"
@@ -489,7 +523,7 @@ def download_with_smart_filename(controller, socketio_instance):
             active_downloads.pop(download_id, None)
             return
 
-        # --- UPLOAD PHASE ---
+        # --- 4. UPLOAD PHASE ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
             
             socketio_instance.emit("download_progress", {

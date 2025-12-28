@@ -399,6 +399,8 @@ function validateDirectUrl() {
      }
      const isUrl = url.match(/^(http|https):\/\/[^ "]+$/);
      if (!isUrl) {
+         // Explicitly ALLOW Drive Links (ensure no blocking logic here)
+         // The previous version had no block, so this is fine.
          input.classList.add('shake-invalid');
          setTimeout(() => input.classList.remove('shake-invalid'), 400);
          showToast('Invalid URL', 'warning');
@@ -595,7 +597,7 @@ function setSpeed(rate, el) {
 }
 
 function setQuality(qual, el) {
-    // Deprecated menu function, kept for safety but unused
+    // Deprecated menu function
 }
 
 function cycleZoom() {
