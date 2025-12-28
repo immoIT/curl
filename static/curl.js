@@ -149,7 +149,7 @@ function createDownloadItem(data) {
     const div = document.createElement('div');
     div.id = `download-${data.download_id}`;
     div.className = 'download-item';
-    div.setAttribute('data-phase', 'downloading'); // Default
+    div.setAttribute('data-phase', 'downloading'); 
     div.innerHTML = `
         <div class="d-flex justify-content-between align-items-start mb-2">
             <div>
@@ -399,8 +399,6 @@ function validateDirectUrl() {
      }
      const isUrl = url.match(/^(http|https):\/\/[^ "]+$/);
      if (!isUrl) {
-         // Explicitly ALLOW Drive Links (ensure no blocking logic here)
-         // The previous version had no block, so this is fine.
          input.classList.add('shake-invalid');
          setTimeout(() => input.classList.remove('shake-invalid'), 400);
          showToast('Invalid URL', 'warning');
@@ -419,26 +417,44 @@ function debounceConvertGDrive(immediate = false) {
 function validateAndConvert() {
     const input = document.getElementById('gdriveUrl');
     const url = input.value.trim();
+    const resultDiv = document.getElementById('gdriveResult');
+    
     if (!url) {
-        document.getElementById('gdriveResult').style.display = 'none';
+        resultDiv.style.display = 'none';
         return;
     }
-    const isUrl = url.match(/^(http|https):\/\/[^ "]+$/);
-    const isGDrive = url.includes('drive.google.com') || url.includes('docs.google.com');
 
-    if (!isUrl || !isGDrive) {
+    // 1. Regex to extract File ID
+    let fileId = null;
+    const patterns = [
+        /\/file\/d\/([^/]+)/,
+        /id=([^&]+)/,
+        /\/open\?id=([^&]+)/
+    ];
+
+    for (let p of patterns) {
+        let m = url.match(p);
+        if (m) {
+            fileId = m[1];
+            break;
+        }
+    }
+
+    if (!fileId) {
         input.classList.add('shake-invalid');
         setTimeout(() => input.classList.remove('shake-invalid'), 400);
-        showToast('Only Google Drive links allowed!', 'warning');
+        showToast('Invalid Google Drive Link', 'warning');
+        resultDiv.style.display = 'none';
         return;
     }
-    document.getElementById('gdriveLoading').style.display = 'block';
-    document.getElementById('gdriveResult').style.display = 'none';
+
+    // 2. Generate Direct Download Link
+    const directLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
     
-    setTimeout(() => {
-        document.getElementById('gdriveLoading').style.display = 'none';
-        showToast('Ready for manual link copying', 'info');
-    }, 500);
+    // 3. Update DOM
+    document.getElementById('gdriveFilenameDisplay').innerText = directLink;
+    document.getElementById('hiddenDirectLink').value = directLink;
+    resultDiv.style.display = 'block';
 }
 
 function copyGDriveLink() {
