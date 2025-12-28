@@ -532,24 +532,21 @@ function openPlayer(filename, driveId = null) {
             .then(data => {
                 if (data.width && data.height) {
                     const h = parseInt(data.height);
-                    let label = 'Original';
                     let badge = 'HD';
-                    let levels = ['original'];
                     
-                    // Logic: Add quality levels based on source height
-                    if (h >= 2160) { badge = '4K'; levels.push('1080p', '720p', '480p'); }
-                    else if (h >= 1440) { badge = '2K'; levels.push('1080p', '720p', '480p'); }
-                    else if (h >= 1080) { badge = '1080p'; levels.push('720p', '480p'); }
-                    else if (h >= 720) { badge = '720p'; levels.push('480p'); }
-                    else { badge = h + 'p'; }
+                    // Logic: Determine Badge based on source height
+                    if (h >= 2160) badge = '4K';
+                    else if (h >= 1440) badge = '2K';
+                    else if (h >= 1080) badge = '1080p';
+                    else if (h >= 720) badge = '720p';
+                    else badge = h + 'p';
 
+                    // Update the UI icon ONLY (No extra menu options)
                     qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
                     
+                    // Menu only shows "Original"
                     if(menu) {
-                        menu.innerHTML = levels.map(q => {
-                            const txt = q === 'original' ? `Original (${badge})` : q;
-                            return `<div class="menu-opt ${q==='original'?'selected':''}" onclick="setQuality('${q}', this)">${txt}</div>`;
-                        }).join('');
+                        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>`;
                     }
                 }
             })
@@ -596,10 +593,7 @@ function setQuality(qual, el) {
     el.classList.add('selected');
     
     if (qual === 'original') {
-         // Reset to original icon if we saved it, or just generic
-         // qualityBtn.innerHTML = ... (logic to restore badge)
-    } else {
-         qualityBtn.innerHTML = '<span class="btn-text">' + qual + '</span>';
+         // Keep current badge logic
     }
 }
 
