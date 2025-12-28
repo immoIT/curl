@@ -518,12 +518,13 @@ function openPlayer(filename, driveId = null) {
     rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
     video.style.objectFit = 'contain';
     
-    // Reset Resolution Label
-    qualityBtn.innerHTML = '<span class="btn-text">HD</span>';
+    // Reset Resolution Label - Set to loading or blank initially
+    qualityBtn.innerHTML = '<span class="btn-text">--</span>';
+    // Remove menu interaction
+    qualityBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); }; 
+    // Clear menu content just in case
     const menu = document.getElementById('qualityMenu');
-    if(menu) {
-        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>`;
-    }
+    if(menu) menu.innerHTML = '';
 
     // Determine Original Resolution via API (OPENCV)
     if (driveId) {
@@ -543,11 +544,6 @@ function openPlayer(filename, driveId = null) {
 
                     // Update the UI icon ONLY (No extra menu options)
                     qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
-                    
-                    // Menu only shows "Original"
-                    if(menu) {
-                        menu.innerHTML = `<div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>`;
-                    }
                 }
             })
             .catch(e => console.log('Meta fetch error', e));
@@ -588,13 +584,7 @@ function setSpeed(rate, el) {
 }
 
 function setQuality(qual, el) {
-    toggleMenu('qualityMenu');
-    document.querySelectorAll('#qualityMenu .menu-opt').forEach(opt => opt.classList.remove('selected'));
-    el.classList.add('selected');
-    
-    if (qual === 'original') {
-         // Keep current badge logic
-    }
+    // Deprecated menu function, kept for safety but unused
 }
 
 function cycleZoom() {

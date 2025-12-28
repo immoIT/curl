@@ -10,7 +10,7 @@ import psutil
 import io
 import threading
 import cv2 
-import tempfile 
+import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
@@ -62,7 +62,7 @@ def get_gdrive_service():
     return build('drive', 'v3', credentials=creds)
 
 def get_file_metadata(file_id):
-    """Fetches name and mimeType from Drive."""
+    """Fetches name, mimeType, and video metadata from Drive."""
     try:
         service = get_gdrive_service()
         if not service: return {"name": "Unknown"}
@@ -196,11 +196,6 @@ def format_time(seconds):
 
 # --- BLUEPRINT ROUTES ---
 
-@curl_bp.route("/healthz", methods=["GET"])
-def health_check():
-    """Simple health check endpoint."""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
-
 @curl_bp.route("/", methods=["GET"])
 def index():
     return render_template('curl.html')
@@ -266,7 +261,7 @@ def upload_sub():
 def get_subs():
     return jsonify([])
 
-# --- VIDEO METADATA ROUTE (OPENCV HEADER PROBE) ---
+# --- VIDEO METADATA ROUTE (OPENCV PROBE) ---
 
 @curl_bp.route("/video_meta/<file_id>", methods=["GET"])
 def get_video_meta(file_id):
@@ -280,13 +275,11 @@ def get_video_meta(file_id):
     
     try:
         # 1. Download header chunk (10MB) to temp file
-        # OpenCV fails on private URLs, so we must feed it a local file chunk
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
             tmp_path = tmp_file.name
             with requests.get(stream_url, headers=headers, stream=True) as r:
                 for chunk in r.iter_content(chunk_size=4096):
                     tmp_file.write(chunk)
-                    # Stop after 10MB (enough for MOOV atom)
                     if tmp_file.tell() > 10 * 1024 * 1024: 
                         break
         
@@ -302,7 +295,7 @@ def get_video_meta(file_id):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-        # 4. Fallback to API Metadata if OpenCV failed (e.g. MOOV at end)
+        # 4. Fallback to API Metadata
         if width == 0 or height == 0:
             meta = get_file_metadata(file_id)
             video_meta = meta.get('videoMediaMetadata', {})
