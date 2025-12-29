@@ -4,16 +4,25 @@
 // 1. DASHBOARD & SOCKET LOGIC
 // =========================================================
 
-// --- Theme Toggle ---
+// --- Theme Toggle & Management Logic ---
 const toggle = document.getElementById('darkModeToggle');
 const themeIcon = document.getElementById('themeIcon');
+const themeSelect = document.getElementById('themeSelect');
+const themeLink = document.getElementById('themeStylesheet');
+
+// Base URL for standard bootstrap
+const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
 
 function updateThemeIcon(isDark) {
     themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 }
 
-const savedTheme = localStorage.getItem('theme');
-if (savedTheme === 'dark') {
+// 1. Load Saved State
+const savedDarkMode = localStorage.getItem('themeMode'); // 'dark' or 'light'
+const savedThemeName = localStorage.getItem('themeName') || 'default';
+
+// Apply Dark Mode
+if (savedDarkMode === 'dark') {
     document.documentElement.setAttribute('data-bs-theme', 'dark');
     toggle.checked = true;
     updateThemeIcon(true);
@@ -21,12 +30,35 @@ if (savedTheme === 'dark') {
     updateThemeIcon(false);
 }
 
+// Apply Saved Theme CSS
+if(savedThemeName && savedThemeName !== 'default') {
+    themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${savedThemeName}/bootstrap.min.css`;
+    if(themeSelect) themeSelect.value = savedThemeName;
+}
+
+// 2. Dark Mode Toggle Listener
 toggle.addEventListener('change', () => {
     const isDark = toggle.checked;
     document.documentElement.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('themeMode', isDark ? 'dark' : 'light');
     updateThemeIcon(isDark);
 });
+
+// 3. Theme Select Listener
+if(themeSelect) {
+    themeSelect.addEventListener('change', (e) => {
+        const selectedTheme = e.target.value;
+        
+        if (selectedTheme === 'default') {
+            themeLink.href = DEFAULT_THEME_URL;
+        } else {
+            themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${selectedTheme}/bootstrap.min.css`;
+        }
+        
+        localStorage.setItem('themeName', selectedTheme);
+        showToast(`Theme changed to ${selectedTheme.charAt(0).toUpperCase() + selectedTheme.slice(1)}`, 'primary');
+    });
+}
 
 // --- Socket.IO Setup ---
 const socket = io();
