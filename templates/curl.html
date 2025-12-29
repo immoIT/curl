@@ -8,13 +8,10 @@
     
     <script>
         (function() {
-            // 1. Restore Dark Mode Immediately
             const savedMode = localStorage.getItem('themeMode');
             if (savedMode === 'dark') {
                 document.documentElement.setAttribute('data-bs-theme', 'dark');
             }
-
-            // 2. Restore Theme CSS Immediately
             const savedTheme = localStorage.getItem('themeName') || 'default';
             let themeUrl = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
             if (savedTheme !== 'default') {
@@ -23,6 +20,7 @@
             document.write('<link id="themeStylesheet" href="' + themeUrl + '" rel="stylesheet">');
         })();
     </script>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -79,10 +77,6 @@
         .brand-sub {
             font-size: 0.5rem; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
             opacity: 0.7; margin-top: 2px; color: var(--bs-body-color);
-        }
-        .nav-stats-badge {
-            background: var(--bs-primary); color: var(--bs-white); 
-            font-weight: 600; border-radius: 6px; padding: 0.4em 0.8em; font-size: 0.85rem;
         }
 
         /* Cards & Lists */
@@ -156,6 +150,13 @@
         
         .modal-dialog.modal-xl { max-width: 98vw; margin: 0.5rem auto; }
 
+        /* 3. TRANSPARENT BLACK BACKGROUND */
+        .modal-content.player-bg-custom {
+            background-color: rgba(0, 0, 0, 0.9) !important;
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+        }
+
         .close-player-btn {
             position: absolute; top: -12px; right: -12px; z-index: 2000;
             background: var(--bs-danger); border: 2px solid white; color: white;
@@ -190,6 +191,16 @@
             aspect-ratio: unset !important; border-radius: 0;
         }
         .player-wrapper:fullscreen video { height: 100%; width: 100%; }
+
+        /* 6. REMOVE CAST FLASHING */
+        .cast-overlay, .video-cast-indicator, 
+        video::-webkit-media-controls-overlay-cast-button,
+        video::-internal-media-controls-cast-button {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
 
         .content-rotator {
             width: 100%; height: 100%; position: relative;
@@ -272,13 +283,17 @@
             height: 100%; background: var(--bs-primary); width: 0%; border-radius: 10px; position: relative;
             box-shadow: 0 0 10px rgba(0,0,0,0.3);
         }
+        
+        /* 5. SEEK BUTTON ALWAYS VISIBLE */
         .progress-fill::after {
             content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
-            width: 10px; height: 10px; 
+            width: 12px; height: 12px; /* Slightly larger */
             background: #fff; border-radius: 50%; 
-            opacity: 0; transition: 0.2s; box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            opacity: 1; /* Always visible */
+            box-shadow: 0 0 5px rgba(0,0,0,0.8);
+            display: block;
         }
-        .progress-bg:hover .progress-fill::after { opacity: 1; transform: translateY(-50%) scale(1.2); }
+        .progress-bg:hover .progress-fill::after { transform: translateY(-50%) scale(1.2); }
 
         .volume-wrapper { position: relative; }
         .volume-slider-container {
@@ -327,7 +342,6 @@
             </a>
             
             <div class="d-flex align-items-center gap-3">
-                <span id="ramUsage" class="nav-stats-badge d-none d-md-inline-block"><i class="bi bi-memory me-1"></i>--%</span>
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="darkModeToggle" style="cursor:pointer;">
                     <label class="form-check-label text-body" for="darkModeToggle"><i id="themeIcon" class="bi bi-moon-stars-fill"></i></label>
@@ -475,7 +489,7 @@
 
     <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
         <div class="modal-dialog modal-dialog-centered modal-xl">
-            <div class="modal-content bg-transparent border-0 shadow-none">
+            <div class="modal-content player-bg-custom border-0 shadow-none">
                 <div class="modal-body p-0 position-relative">
                     
                     <button onclick="closePlayer()" class="close-player-btn" id="closePlayerBtn">
@@ -538,9 +552,9 @@
                                                 <div class="menu-opt" onclick="setSpeed(2.0, this)">2.0x</div>
                                             </div>
                                         </div>
-                                        <button onclick="toggleRotation()" title="Rotate"><i class="fas fa-mobile-alt"></i></button>
+                                        <button onclick="toggleRotation()" title="Rotate" id="rotateBtn"><i class="fas fa-mobile-alt"></i></button>
                                         <button onclick="togglePiP()"><i class="fas fa-images"></i></button>
-                                        <button onclick="cycleZoom()" title="Zoom"><i class="fas fa-expand" id="zoomIcon"></i></button>
+                                        <button onclick="cycleZoom()" title="Zoom" id="zoomBtn"><i class="fas fa-expand" id="zoomIcon"></i></button>
                                         <button id="fsBtn"><i class="fas fa-expand-arrows-alt"></i></button>
                                     </div>
                                 </div>

@@ -14,7 +14,7 @@ const themeLink = document.getElementById('themeStylesheet');
 const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
 
 function updateThemeIcon(isDark) {
-    themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+    if(themeIcon) themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 }
 
 // 1. Load Saved State
@@ -24,37 +24,37 @@ const savedThemeName = localStorage.getItem('themeName') || 'default';
 // Apply Dark Mode
 if (savedDarkMode === 'dark') {
     document.documentElement.setAttribute('data-bs-theme', 'dark');
-    toggle.checked = true;
+    if(toggle) toggle.checked = true;
     updateThemeIcon(true);
 } else {
     updateThemeIcon(false);
 }
 
-// Apply Saved Theme CSS
+// Apply Saved Theme CSS (Handled mostly in HTML now to prevent flash, but kept here for dynamic switching)
 if(savedThemeName && savedThemeName !== 'default') {
-    themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${savedThemeName}/bootstrap.min.css`;
+    // Already handled by head script, but sync dropdown if exists
     if(themeSelect) themeSelect.value = savedThemeName;
 }
 
 // 2. Dark Mode Toggle Listener
-toggle.addEventListener('change', () => {
-    const isDark = toggle.checked;
-    document.documentElement.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('themeMode', isDark ? 'dark' : 'light');
-    updateThemeIcon(isDark);
-});
+if(toggle) {
+    toggle.addEventListener('change', () => {
+        const isDark = toggle.checked;
+        document.documentElement.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
+        localStorage.setItem('themeMode', isDark ? 'dark' : 'light');
+        updateThemeIcon(isDark);
+    });
+}
 
 // 3. Theme Select Listener
 if(themeSelect) {
     themeSelect.addEventListener('change', (e) => {
         const selectedTheme = e.target.value;
-        
         if (selectedTheme === 'default') {
             themeLink.href = DEFAULT_THEME_URL;
         } else {
             themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${selectedTheme}/bootstrap.min.css`;
         }
-        
         localStorage.setItem('themeName', selectedTheme);
         showToast(`Theme changed to ${selectedTheme.charAt(0).toUpperCase() + selectedTheme.slice(1)}`, 'primary');
     });
@@ -86,17 +86,7 @@ socket.on('disconnect', () => {
     status.innerHTML = '<i class="bi bi-wifi-off"></i> Offline';
 });
 
-// --- Server Stats ---
-socket.on('server_stats', (data) => {
-    const ramBadge = document.getElementById('ramUsage');
-    if (ramBadge) {
-        ramBadge.innerHTML = `<i class="bi bi-memory me-1"></i>RAM: ${data.ram}%`;
-        ramBadge.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'text-dark');
-        if(data.ram < 60) ramBadge.classList.add('bg-success');
-        else if (data.ram < 85) ramBadge.classList.add('bg-warning', 'text-dark');
-        else ramBadge.classList.add('bg-danger');
-    }
-});
+// --- REMOVED RAM STATS LISTENER HERE ---
 
 // --- Download Events ---
 socket.on('download_progress', (data) => updateDownloadUI(data));
@@ -175,33 +165,6 @@ function updateDownloadUI(data) {
     el.querySelector('.speed').innerText = data.speed;
     el.querySelector('.eta').innerText = data.eta;
     el.querySelector('.downloaded').innerText = formatBytes(data.downloaded) + ' / ' + formatBytes(data.total_size);
-}
-
-function createDownloadItem(data) {
-    const div = document.createElement('div');
-    div.id = `download-${data.download_id}`;
-    div.className = 'download-item';
-    div.setAttribute('data-phase', 'downloading'); 
-    div.innerHTML = `
-        <div class="d-flex justify-content-between align-items-start mb-2">
-            <div>
-                <h6 class="filename fw-bold mb-0 text-truncate" style="max-width: 300px;">${data.filename}</h6>
-                <small class="text-muted status-text">Downloading...</small>
-            </div>
-            <div class="btn-group">
-                <button class="btn btn-sm btn-outline-warning btn-pause" onclick="pauseDownload('${data.download_id}')" title="Pause"><i class="bi bi-pause-fill"></i></button>
-                <button class="btn btn-sm btn-outline-success btn-resume" onclick="resumeDownload('${data.download_id}')" title="Resume" style="display:none;"><i class="bi bi-play-fill"></i></button>
-                <button class="btn btn-sm btn-outline-danger" onclick="cancelDownload('${data.download_id}')" title="Cancel"><i class="bi bi-x-lg"></i></button>
-            </div>
-        </div>
-        <div class="progress"><div class="progress-bar" role="progressbar" style="width: 0%"></div></div>
-        <div class="download-meta d-flex justify-content-between">
-            <span><i class="bi bi-hdd me-1 meta-icon"></i><span class="downloaded">0/0</span></span>
-            <span><i class="bi bi-speedometer2 me-1"></i><span class="speed">0 B/s</span></span>
-            <span><i class="bi bi-clock me-1"></i><span class="eta">--</span></span>
-            <span class="fw-bold percent text-primary">0%</span>
-        </div>`;
-    return div;
 }
 
 function handleComplete(data) {
@@ -534,7 +497,7 @@ function loadSavedFiles() {
 }
 
 // =========================================================
-// 2. MX PLAYER CONTROLLER LOGIC
+// 2. PLAYER CONTROLLER LOGIC (UPDATED)
 // =========================================================
 
 const video = document.getElementById('video');
@@ -547,6 +510,7 @@ const progressBg = document.getElementById('progressBg');
 const progressFill = document.getElementById('progressFill');
 const spinner = document.getElementById('bufferingIcon');
 const zoomIcon = document.getElementById('zoomIcon');
+const zoomBtn = document.getElementById('zoomBtn'); // NEW: Select Zoom Button
 const speedBtn = document.getElementById('speedBtn');
 const qualityBtn = document.getElementById('qualityBtn');
 const fsBtn = document.getElementById('fsBtn');
@@ -558,8 +522,9 @@ let playerModalInstance = null;
 let hideTimer;
 let isPortrait = false;
 let zoomIdx = 0;
-const zoomModes = ['contain', 'cover', 'fill'];
-const zoomIcons = ['fa-expand', 'fa-crop-alt', 'fa-arrows-alt-h'];
+// CHANGED: Zoom Logic - Contain (Standard) vs Cover (Fill/Crop Black Outlines)
+const zoomModes = ['contain', 'cover']; 
+const zoomIcons = ['fa-expand', 'fa-compress-arrows-alt'];
 
 // --- 1. Startup & Teardown ---
 
@@ -573,18 +538,25 @@ function openPlayer(filename, driveId = null) {
     progressFill.style.width = '0%';
     document.getElementById('currTime').innerText = "00:00";
     document.getElementById('durTime').innerText = "00:00";
+    
+    // RESET ROTATION & ZOOM
     isPortrait = false;
     rotator.style.transform = "rotate(0deg)";
     rotator.style.width = "100%"; rotator.style.height = "100%";
     rotator.style.position = "relative";
     rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
-    video.style.objectFit = 'contain';
     
-    // Reset Resolution Label - Set to loading or blank initially
-    qualityBtn.innerHTML = '<span class="btn-text">--</span>';
-    // Remove menu interaction
-    qualityBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); }; 
-    // Clear menu content just in case
+    // RESET ZOOM STATE
+    zoomIdx = 0;
+    video.style.objectFit = 'contain';
+    if(zoomBtn) zoomBtn.style.display = 'inline-block';
+    if(zoomIcon) zoomIcon.className = 'fas fa-expand';
+    
+    // Reset Resolution Label
+    if(qualityBtn) {
+        qualityBtn.innerHTML = '<span class="btn-text">--</span>';
+        qualityBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); }; 
+    }
     const menu = document.getElementById('qualityMenu');
     if(menu) menu.innerHTML = '';
 
@@ -603,8 +575,7 @@ function openPlayer(filename, driveId = null) {
                     else if (h >= 720) badge = '720p';
                     else badge = h + 'p';
 
-                    // Update the UI icon ONLY (No extra menu options)
-                    qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
+                    if(qualityBtn) qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
                 }
             })
             .catch(e => console.log('Meta fetch error', e));
@@ -648,28 +619,41 @@ function setQuality(qual, el) {
     // Deprecated menu function
 }
 
+// CHANGED: Zoom Logic to Toggle Cutoff
 function cycleZoom() {
+    if (isPortrait) return; // Disable zooming in portrait
     zoomIdx = (zoomIdx + 1) % zoomModes.length;
     video.style.objectFit = zoomModes[zoomIdx];
     zoomIcon.className = 'fas ' + zoomIcons[zoomIdx];
 }
 
+// CHANGED: Rotation Logic to Hide Zoom
 function toggleRotation() {
     isPortrait = !isPortrait;
     if (isPortrait) {
+        // PORTRAIT ENABLED
         if (wrapper.requestFullscreen) wrapper.requestFullscreen();
         rotator.style.transform = "rotate(90deg)";
         rotator.style.width = "100vh"; rotator.style.height = "100vw";
         rotator.style.position = "absolute";
         rotator.style.top = "50%"; rotator.style.left = "50%";
         rotator.style.marginTop = "-50vw"; rotator.style.marginLeft = "-50vh";
+        
+        // Disable Landscape features
+        if(zoomBtn) zoomBtn.style.display = 'none';
+        video.style.objectFit = 'contain'; // Reset zoom in portrait
     } else {
+        // LANDSCAPE ENABLED (Normal)
         if (document.exitFullscreen) document.exitFullscreen();
         rotator.style.transform = "rotate(0deg)";
         rotator.style.width = "100%"; rotator.style.height = "100%";
         rotator.style.position = "relative";
         rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
         rotator.style.top = "0"; rotator.style.left = "0";
+        
+        // Enable Landscape features
+        if(zoomBtn) zoomBtn.style.display = 'inline-block';
+        video.style.objectFit = zoomModes[zoomIdx]; // Restore or reset zoom
     }
 }
 
@@ -820,7 +804,7 @@ function showControls() {
     }
 }
 
-// 3) RESET TIMER ON ANY CONTROL CLICK
+// RESET TIMER ON ANY CONTROL CLICK
 controls.addEventListener('click', () => showControls());
 
 wrapper.addEventListener('mousemove', showControls);
