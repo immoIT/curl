@@ -6,7 +6,23 @@
     <title>Bolt Downloader</title>
     <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
     
-    <link id="themeStylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script>
+        (function() {
+            // 1. Restore Dark Mode Immediately
+            const savedMode = localStorage.getItem('themeMode');
+            if (savedMode === 'dark') {
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+            }
+
+            // 2. Restore Theme CSS Immediately
+            const savedTheme = localStorage.getItem('themeName') || 'default';
+            let themeUrl = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
+            if (savedTheme !== 'default') {
+                themeUrl = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${savedTheme}/bootstrap.min.css`;
+            }
+            document.write('<link id="themeStylesheet" href="' + themeUrl + '" rel="stylesheet">');
+        })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -16,7 +32,7 @@
 
     <style>
         /* =========================================
-           1. DASHBOARD STYLES (UNCHANGED)
+           1. DASHBOARD STYLES
            ========================================= */
         
         body {
@@ -135,21 +151,20 @@
         @keyframes pulse { 0% { opacity: 0.7; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.7; transform: scale(0.98); } }
 
         /* =========================================
-           2. PLAYER STYLES (UPDATED - SMALLER ICONS)
+           2. PLAYER STYLES
            ========================================= */
         
         .modal-dialog.modal-xl { max-width: 98vw; margin: 0.5rem auto; }
 
-        /* Smaller Close Button */
         .close-player-btn {
             position: absolute; top: -12px; right: -12px; z-index: 2000;
             background: var(--bs-danger); border: 2px solid white; color: white;
             border-radius: 50%; 
-            width: 28px; /* Reduced from 35px */
-            height: 28px; /* Reduced from 35px */
+            width: 28px; 
+            height: 28px; 
             cursor: pointer;
             display: flex; align-items: center; justify-content: center;
-            font-size: 14px; /* Explicit smaller icon */
+            font-size: 14px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: transform 0.2s, opacity 0.3s ease;
         }
         .close-player-btn:hover { transform: scale(1.1); }
@@ -189,7 +204,7 @@
         .spinner {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             border: 3px solid rgba(255, 255, 255, 0.1); border-left-color: var(--bs-primary); 
-            border-radius: 50%; width: 40px; height: 40px; /* Slightly smaller spinner */
+            border-radius: 50%; width: 40px; height: 40px; 
             animation: spin 1s linear infinite; display: none; z-index: 50; pointer-events: none;
         }
         @keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
@@ -198,23 +213,21 @@
 
         .video-title {
             position: absolute; top: 0; left: 0; right: 0;
-            padding: 10px 15px; /* Reduced padding */
+            padding: 10px 15px; 
             background: linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%);
             color: #fff; font-size: clamp(11px, 1.5vw, 14px); font-weight: 600;
             z-index: 100; transition: opacity 0.3s ease; pointer-events: none; 
             text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
 
-        /* --- CONTROL BAR LAYOUT --- */
         .controls-container {
             position: absolute; bottom: 0; left: 0; right: 0;
             background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, transparent 100%);
-            padding: 8px 2vw 12px 2vw; /* Compact padding */
-            display: flex; flex-direction: column; gap: 6px; /* Tighter gap */
+            padding: 8px 2vw 12px 2vw; 
+            display: flex; flex-direction: column; gap: 6px; 
             z-index: 100; transition: opacity 0.3s ease; width: 100%;
         }
 
-        /* Button Alignment: Left | Gap | Right */
         .btn-row { 
             display: flex; 
             justify-content: space-between; 
@@ -224,20 +237,14 @@
         
         .left-btns, .right-btns { 
             display: flex; align-items: center; 
-            gap: clamp(8px, 1vw, 14px); /* Smaller gap between buttons */
+            gap: clamp(8px, 1vw, 14px); 
         }
 
-        /* SMALLER ICONS CONFIGURATION */
         .controls-container button {
             background: none; border: none; color: rgba(255,255,255,0.8); cursor: pointer;
-            
-            /* Reduced Font Size */
             font-size: clamp(11px, 1.5vw, 14px); 
-            
-            /* Reduced Padding & Width */
             padding: 2px 4px; 
             min-width: 24px;
-            
             transition: all 0.2s; 
             text-align: center; display: flex; align-items: center; justify-content: center;
         }
@@ -246,7 +253,7 @@
         }
         
         .btn-text {
-            font-size: clamp(9px, 1.2vw, 11px); /* Smaller text label */
+            font-size: clamp(9px, 1.2vw, 11px); 
             font-weight: 700; font-family: sans-serif;
             border: 1px solid rgba(255,255,255,0.3); border-radius: 3px; padding: 1px 3px; white-space: nowrap;
         }
@@ -256,7 +263,7 @@
             font-size: clamp(10px, 1.2vw, 12px); font-family: monospace; font-weight: 600;
         }
         .progress-bg {
-            flex-grow: 1; height: 4px; /* Thinner progress bar */
+            flex-grow: 1; height: 4px; 
             background: rgba(255,255,255,0.2);
             border-radius: 10px; cursor: pointer; position: relative; transition: height 0.2s;
         }
@@ -267,7 +274,7 @@
         }
         .progress-fill::after {
             content: ''; position: absolute; right: -5px; top: 50%; transform: translateY(-50%);
-            width: 10px; height: 10px; /* Smaller thumb */
+            width: 10px; height: 10px; 
             background: #fff; border-radius: 50%; 
             opacity: 0; transition: 0.2s; box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
@@ -276,7 +283,7 @@
         .volume-wrapper { position: relative; }
         .volume-slider-container {
             position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-            width: 26px; height: 80px; /* Slightly thinner/shorter */
+            width: 26px; height: 80px; 
             background: rgba(20,20,20,0.9); border-radius: 8px;
             display: flex; justify-content: center; visibility: hidden; opacity: 0; transition: 0.2s; margin-bottom: 8px;
             padding: 8px 0; border: 1px solid rgba(255,255,255,0.1);
