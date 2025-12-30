@@ -1,27 +1,22 @@
 // - Complete Client Logic
 
 // =========================================================
-// 1. DASHBOARD & SOCKET LOGIC
+// 1. DASHBOARD & SOCKET LOGIC (UNCHANGED)
 // =========================================================
 
-// --- Theme Toggle & Management Logic ---
 const toggle = document.getElementById('darkModeToggle');
 const themeIcon = document.getElementById('themeIcon');
 const themeSelect = document.getElementById('themeSelect');
 const themeLink = document.getElementById('themeStylesheet');
-
-// Base URL for standard bootstrap
 const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
 
 function updateThemeIcon(isDark) {
     if(themeIcon) themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 }
 
-// 1. Load Saved State
-const savedDarkMode = localStorage.getItem('themeMode'); // 'dark' or 'light'
+const savedDarkMode = localStorage.getItem('themeMode'); 
 const savedThemeName = localStorage.getItem('themeName') || 'default';
 
-// Apply Dark Mode
 if (savedDarkMode === 'dark') {
     document.documentElement.setAttribute('data-bs-theme', 'dark');
     if(toggle) toggle.checked = true;
@@ -30,13 +25,10 @@ if (savedDarkMode === 'dark') {
     updateThemeIcon(false);
 }
 
-// Apply Saved Theme CSS (Handled mostly in HTML now to prevent flash, but kept here for dynamic switching)
 if(savedThemeName && savedThemeName !== 'default') {
-    // Already handled by head script, but sync dropdown if exists
     if(themeSelect) themeSelect.value = savedThemeName;
 }
 
-// 2. Dark Mode Toggle Listener
 if(toggle) {
     toggle.addEventListener('change', () => {
         const isDark = toggle.checked;
@@ -46,7 +38,6 @@ if(toggle) {
     });
 }
 
-// 3. Theme Select Listener
 if(themeSelect) {
     themeSelect.addEventListener('change', (e) => {
         const selectedTheme = e.target.value;
@@ -60,7 +51,6 @@ if(themeSelect) {
     });
 }
 
-// --- Socket.IO Setup ---
 const socket = io();
 let activeDownloadCount = 0;
 const cancelledIds = new Set();
@@ -86,15 +76,11 @@ socket.on('disconnect', () => {
     status.innerHTML = '<i class="bi bi-wifi-off"></i> Offline';
 });
 
-// --- REMOVED RAM STATS LISTENER HERE ---
-
-// --- Download Events ---
 socket.on('download_progress', (data) => updateDownloadUI(data));
 socket.on('download_complete', (data) => handleComplete(data));
 socket.on('download_error', (data) => handleError(data));
 socket.on('download_paused', (data) => handlePaused(data));
 
-// --- Form Handling ---
 document.getElementById('downloadForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const url = document.getElementById('url').value.trim();
@@ -117,10 +103,8 @@ document.getElementById('downloadForm').addEventListener('submit', (e) => {
 
 function updateDownloadUI(data) {
     if(cancelledIds.has(data.download_id)) return;
-
     const container = document.getElementById('activeDownloads');
     let el = document.getElementById(`download-${data.download_id}`);
-    
     document.getElementById('emptyState').style.display = 'none';
     
     if (!el) {
@@ -138,11 +122,8 @@ function updateDownloadUI(data) {
 
     const bar = el.querySelector('.progress-bar');
     bar.style.width = `${data.percentage}%`;
-    
     const statusText = el.querySelector('.status-text');
     const metaIcon = el.querySelector('.meta-icon');
-
-    // Store phase for cancel logic
     el.setAttribute('data-phase', data.phase);
 
     if (data.phase === 'uploading') {
@@ -215,19 +196,16 @@ function handleError(data) {
     }
 }
 
-// --- Filename Editing Logic ---
 function enableEditMode() {
     const previewText = document.getElementById('filenamePreview').innerText;
     const input = document.getElementById('customFilename');
     const displayMode = document.getElementById('previewModeDisplay');
-
     input.value = previewText;
     displayMode.style.display = 'none';
     input.style.display = 'block';
     input.focus();
 }
 
-// --- CONFIRM MODAL LOGIC ---
 let confirmCallback = null;
 const confirmModalEl = document.getElementById('confirmModal');
 const confirmModal = new bootstrap.Modal(confirmModalEl);
@@ -239,7 +217,6 @@ function showConfirm(config, callback) {
     confirmBtn.textContent = config.btnText;
     confirmBtn.className = 'btn px-4 ' + config.btnClass;
     document.getElementById('modalIcon').className = 'bi display-3 mb-3 d-block ' + config.iconClass;
-
     confirmCallback = callback;
     confirmModal.show();
 }
@@ -249,7 +226,6 @@ confirmBtn.addEventListener('click', () => {
     confirmModal.hide();
 });
 
-// --- Control Functions ---
 function pauseDownload(id) { 
     showConfirm({
         title: 'Pause Download?',
@@ -265,7 +241,6 @@ function resumeDownload(id) { socket.emit('resume_download', {download_id: id});
 function cancelDownload(id) { 
     const el = document.getElementById(`download-${id}`);
     const isUploading = el && el.getAttribute('data-phase') === 'uploading';
-    
     const title = isUploading ? 'Cancel Uploading?' : 'Cancel Download?';
     const msg = isUploading 
         ? 'Stop uploading to Google Drive? The file will be lost.' 
@@ -321,7 +296,6 @@ function deleteFile(filename) {
     });
 }
 
-// --- Utilities ---
 function formatBytes(bytes, decimals = 2) {
     if (!+bytes) return '0 B';
     const k = 1024;
@@ -349,7 +323,6 @@ async function pasteText(id) {
     } catch(e) { showToast('Clipboard access denied or empty', 'warning'); }
 }
 
-// --- URL Handling ---
 function detectFilename() {
     const url = document.getElementById('url').value;
     const wrapper = document.getElementById('filenamePreviewWrapper');
@@ -419,20 +392,11 @@ function validateAndConvert() {
         return;
     }
 
-    // 1. Regex to extract File ID
     let fileId = null;
-    const patterns = [
-        /\/file\/d\/([^/]+)/,
-        /id=([^&]+)/,
-        /\/open\?id=([^&]+)/
-    ];
-
+    const patterns = [/\/file\/d\/([^/]+)/, /id=([^&]+)/, /\/open\?id=([^&]+)/];
     for (let p of patterns) {
         let m = url.match(p);
-        if (m) {
-            fileId = m[1];
-            break;
-        }
+        if (m) { fileId = m[1]; break; }
     }
 
     if (!fileId) {
@@ -443,10 +407,7 @@ function validateAndConvert() {
         return;
     }
 
-    // 2. Generate Direct Download Link
     const directLink = `https://drive.google.com/uc?export=download&id=${fileId}`;
-    
-    // 3. Update DOM
     document.getElementById('gdriveFilenameDisplay').innerText = directLink;
     document.getElementById('hiddenDirectLink').value = directLink;
     resultDiv.style.display = 'block';
@@ -459,7 +420,6 @@ function copyGDriveLink() {
     }
 }
 
-// --- File List Logic ---
 function loadSavedFiles() {
     const refreshIcon = document.getElementById('refreshIcon');
     refreshIcon.classList.add('rotate-anim');
@@ -474,7 +434,6 @@ function loadSavedFiles() {
             c.innerHTML = data.files.map(f => {
                 const playBtn = `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')"><i class="bi bi-play-circle-fill fs-5"></i></button>`;
                 const downloadBtn = f.gdrive_id ? `<a href="/download_drive/${f.gdrive_id}" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-cloud-download fs-5"></i></a>` : '';
-                
                 return `
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
                     <div class="card-body p-2 d-flex align-items-center">
@@ -505,12 +464,14 @@ const wrapper = document.getElementById('wrapper');
 const rotator = document.getElementById('rotator');
 const controls = document.getElementById('controls');
 const videoTitle = document.getElementById('videoTitle');
-const playBtn = document.getElementById('playBtn');
+// REMOVED old playBtn to prevent errors
+const centerPlayBtn = document.getElementById('centerPlayBtn'); // NEW
+
 const progressBg = document.getElementById('progressBg');
 const progressFill = document.getElementById('progressFill');
 const spinner = document.getElementById('bufferingIcon');
 const zoomIcon = document.getElementById('zoomIcon');
-const zoomBtn = document.getElementById('zoomBtn'); // NEW: Select Zoom Button
+const zoomBtn = document.getElementById('zoomBtn'); 
 const speedBtn = document.getElementById('speedBtn');
 const qualityBtn = document.getElementById('qualityBtn');
 const fsBtn = document.getElementById('fsBtn');
@@ -520,13 +481,12 @@ const closePlayerBtn = document.getElementById('closePlayerBtn');
 
 let playerModalInstance = null;
 let hideTimer;
-let isPortrait = false;
+let isRotated = false; // "Landscape/90deg" mode
 let zoomIdx = 0;
-// CHANGED: Zoom Logic - Contain (Standard) vs Cover (Fill/Crop Black Outlines)
-const zoomModes = ['contain', 'cover']; 
-const zoomIcons = ['fa-expand', 'fa-compress-arrows-alt'];
+let subOffset = 0; 
 
-// --- 1. Startup & Teardown ---
+const zoomModes = ['contain', 'fill', 'cover', 'smart-crop']; 
+const zoomIcons = ['fa-expand', 'fa-arrows-alt-h', 'fa-compress-arrows-alt', 'fa-crop'];
 
 function openPlayer(filename, driveId = null) {
     videoTitle.innerText = filename;
@@ -539,20 +499,22 @@ function openPlayer(filename, driveId = null) {
     document.getElementById('currTime').innerText = "00:00";
     document.getElementById('durTime').innerText = "00:00";
     
-    // RESET ROTATION & ZOOM
-    isPortrait = false;
-    rotator.style.transform = "rotate(0deg)";
-    rotator.style.width = "100%"; rotator.style.height = "100%";
-    rotator.style.position = "relative";
-    rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
+    // RESET STATE
+    setRotationState(false); 
     
-    // RESET ZOOM STATE
+    // RESET ZOOM
     zoomIdx = 0;
     video.style.objectFit = 'contain';
-    if(zoomBtn) zoomBtn.style.display = 'inline-block';
+    video.style.transform = ''; 
+    if(zoomBtn) zoomBtn.style.display = 'none'; 
     if(zoomIcon) zoomIcon.className = 'fas fa-expand';
     
-    // Reset Resolution Label
+    // RESET SUB SYNC
+    subOffset = 0;
+    
+    // RESET PLAY BUTTON
+    if(centerPlayBtn) centerPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
+    
     if(qualityBtn) {
         qualityBtn.innerHTML = '<span class="btn-text">--</span>';
         qualityBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); }; 
@@ -560,7 +522,6 @@ function openPlayer(filename, driveId = null) {
     const menu = document.getElementById('qualityMenu');
     if(menu) menu.innerHTML = '';
 
-    // Determine Original Resolution via API (OPENCV)
     if (driveId) {
         fetch(`/video_meta/${driveId}`)
             .then(r => r.json())
@@ -568,13 +529,11 @@ function openPlayer(filename, driveId = null) {
                 if (data.width && data.height) {
                     const h = parseInt(data.height);
                     let badge = 'HD';
-                    
                     if (h >= 2160) badge = '4K';
                     else if (h >= 1440) badge = '2K';
                     else if (h >= 1080) badge = '1080p';
                     else if (h >= 720) badge = '720p';
                     else badge = h + 'p';
-
                     if(qualityBtn) qualityBtn.innerHTML = `<span class="btn-text">${badge}</span>`;
                 }
             })
@@ -585,7 +544,7 @@ function openPlayer(filename, driveId = null) {
     playerModalInstance = new bootstrap.Modal(modalEl);
     playerModalInstance.show();
     video.play().then(() => {
-        playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+        if(centerPlayBtn) centerPlayBtn.innerHTML = '<i class="fas fa-pause"></i>';
         showControls(); 
     }).catch(e => console.log("Autoplay blocked", e));
 }
@@ -595,8 +554,6 @@ function closePlayer() {
     video.src = "";
     if (playerModalInstance) playerModalInstance.hide();
 }
-
-// --- 2. Menu & UI Toggles ---
 
 function toggleMenu(id) {
     document.querySelectorAll('.popup-menu').forEach(x => {
@@ -615,46 +572,130 @@ function setSpeed(rate, el) {
     else speedBtn.innerHTML = '<span class="btn-text">' + rate + 'x</span>';
 }
 
-function setQuality(qual, el) {
-    // Deprecated menu function
-}
+function setQuality(qual, el) { }
 
-// CHANGED: Zoom Logic to Toggle Cutoff
 function cycleZoom() {
-    if (isPortrait) return; // Disable zooming in portrait
+    if (!isRotated) return; 
     zoomIdx = (zoomIdx + 1) % zoomModes.length;
-    video.style.objectFit = zoomModes[zoomIdx];
+    const mode = zoomModes[zoomIdx];
+    
+    video.style.transform = ''; 
+    
+    if (mode === 'smart-crop') {
+        video.style.objectFit = 'contain'; 
+        video.style.transform = 'scale(1.35)'; 
+    } else {
+        video.style.objectFit = mode;
+    }
     zoomIcon.className = 'fas ' + zoomIcons[zoomIdx];
 }
 
-// CHANGED: Rotation Logic to Hide Zoom
-function toggleRotation() {
-    isPortrait = !isPortrait;
-    if (isPortrait) {
-        // PORTRAIT ENABLED
-        if (wrapper.requestFullscreen) wrapper.requestFullscreen();
+function setRotationState(active) {
+    isRotated = active;
+    
+    wrapper.classList.add('player-landscape');
+    
+    // Select Bootstrap modal elements that might trap fixed positioning
+    const dialog = document.querySelector('#playerModal .modal-dialog');
+    const content = document.querySelector('#playerModal .modal-content');
+
+    if (isRotated) {
+        // ROTATED / LANDSCAPE MODE
+        
+        // A. NEUTRALIZE MODAL PARENTS (Fixes "Sliding/Bottom" Bug)
+        if(dialog) {
+            dialog.style.setProperty('transform', 'none', 'important');
+            dialog.style.setProperty('max-width', 'none', 'important');
+            dialog.style.setProperty('margin', '0', 'important');
+            dialog.style.setProperty('transition', 'none', 'important'); // Stop animations
+        }
+        if(content) {
+             content.style.setProperty('border', 'none', 'important');
+             content.style.setProperty('background', 'transparent', 'important'); // Fallback
+        }
+
+        // B. FORCE WRAPPER TO GLASS (Fake Fullscreen)
+        wrapper.style.setProperty('position', 'fixed', 'important');
+        wrapper.style.setProperty('top', '0', 'important');
+        wrapper.style.setProperty('left', '0', 'important');
+        wrapper.style.setProperty('width', '100vw', 'important');
+        wrapper.style.setProperty('height', '100vh', 'important');
+        wrapper.style.setProperty('z-index', '9999', 'important');
+        wrapper.style.setProperty('max-width', 'none', 'important');
+        wrapper.style.setProperty('max-height', 'none', 'important');
+        wrapper.style.borderRadius = '0';
+
+        // Rotate Inner
         rotator.style.transform = "rotate(90deg)";
-        rotator.style.width = "100vh"; rotator.style.height = "100vw";
+        rotator.style.width = "100vh"; 
+        rotator.style.height = "100vw";
         rotator.style.position = "absolute";
-        rotator.style.top = "50%"; rotator.style.left = "50%";
-        rotator.style.marginTop = "-50vw"; rotator.style.marginLeft = "-50vh";
+        rotator.style.top = "50%"; 
+        rotator.style.left = "50%";
+        rotator.style.marginTop = "-50vw"; 
+        rotator.style.marginLeft = "-50vh";
         
-        // Disable Landscape features
-        if(zoomBtn) zoomBtn.style.display = 'none';
-        video.style.objectFit = 'contain'; // Reset zoom in portrait
-    } else {
-        // LANDSCAPE ENABLED (Normal)
-        if (document.exitFullscreen) document.exitFullscreen();
-        rotator.style.transform = "rotate(0deg)";
-        rotator.style.width = "100%"; rotator.style.height = "100%";
-        rotator.style.position = "relative";
-        rotator.style.marginTop = "0"; rotator.style.marginLeft = "0";
-        rotator.style.top = "0"; rotator.style.left = "0";
-        
-        // Enable Landscape features
+        if (wrapper.requestFullscreen) {
+            wrapper.requestFullscreen().catch(() => {});
+        }
+
         if(zoomBtn) zoomBtn.style.display = 'inline-block';
-        video.style.objectFit = zoomModes[zoomIdx]; // Restore or reset zoom
+        
+        const mode = zoomModes[zoomIdx];
+        if (mode === 'smart-crop') {
+            video.style.objectFit = 'contain';
+            video.style.transform = 'scale(1.35)';
+        } else {
+            video.style.objectFit = mode;
+        }
+
+    } else {
+        // DEFAULT / PORTRAIT MODE
+        
+        // A. RESTORE MODAL PARENTS
+        if(dialog) {
+            dialog.style.removeProperty('transform');
+            dialog.style.removeProperty('max-width');
+            dialog.style.removeProperty('margin');
+            dialog.style.removeProperty('transition');
+        }
+        if(content) {
+             content.style.removeProperty('border');
+             content.style.removeProperty('background'); // Reverts to CSS (transparent black)
+        }
+
+        // B. RESTORE WRAPPER
+        wrapper.style.position = '';
+        wrapper.style.top = '';
+        wrapper.style.left = '';
+        wrapper.style.width = '100%';
+        wrapper.style.height = '';
+        wrapper.style.zIndex = '';
+        wrapper.style.maxWidth = '';
+        wrapper.style.maxHeight = ''; // CSS handles this now (max-height: 100%)
+        wrapper.style.borderRadius = ''; // CSS handles this
+
+        rotator.style.transform = "rotate(0deg)";
+        rotator.style.width = "100%"; 
+        rotator.style.height = "100%";
+        rotator.style.position = "relative";
+        rotator.style.marginTop = "0"; 
+        rotator.style.marginLeft = "0";
+        rotator.style.top = "0"; 
+        rotator.style.left = "0";
+        
+        if (document.exitFullscreen && document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+        
+        if(zoomBtn) zoomBtn.style.display = 'none';
+        video.style.objectFit = 'contain'; 
+        video.style.transform = ''; 
     }
+}
+
+function toggleRotation() {
+    setRotationState(!isRotated);
 }
 
 async function togglePiP() {
@@ -664,18 +705,45 @@ async function togglePiP() {
     } catch(e) { showToast('PiP not supported', 'warning'); }
 }
 
-// --- 3. Subtitle Logic ---
-
 async function loadExistingSubs() {
     try {
         const res = await fetch('/get_subs'); 
         const subs = await res.json();
-        const container = document.getElementById('subListContainer');
-        container.innerHTML = '<div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>';
-        if (Array.isArray(subs)) {
-            subs.forEach(sub => addSubToMenu(sub.name, sub.id));
-        }
+        buildSubMenu(subs);
     } catch (e) { console.error("Error fetching subs", e); }
+}
+
+function adjustSubOffset(amount) {
+    subOffset += amount;
+    const tracks = video.textTracks;
+    for (let i = 0; i < tracks.length; i++) {
+        if (tracks[i].mode === 'showing') {
+            const cues = tracks[i].cues;
+            if(cues) {
+                for (let j = 0; j < cues.length; j++) {
+                    cues[j].startTime += amount;
+                    cues[j].endTime += amount;
+                }
+            }
+        }
+    }
+    showToast(`Sync: ${subOffset > 0 ? '+' : ''}${subOffset.toFixed(1)}s`, 'primary');
+}
+
+function buildSubMenu(subs) {
+    const container = document.getElementById('subListContainer');
+    const syncControls = `
+        <div class="d-flex justify-content-between px-2 py-1 mb-2 border-bottom border-secondary">
+            <button class="btn btn-sm btn-outline-light py-0 px-2" onclick="adjustSubOffset(-0.5)" title="Delay -0.5s">-0.5s</button>
+            <span class="small text-muted align-self-center">Sync</span>
+            <button class="btn btn-sm btn-outline-light py-0 px-2" onclick="adjustSubOffset(0.5)" title="Delay +0.5s">+0.5s</button>
+        </div>
+        <div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>
+    `;
+    container.innerHTML = syncControls;
+    if (Array.isArray(subs)) {
+        subs.forEach(sub => addSubToMenu(sub.name, sub.id));
+    }
 }
 
 function addSubToMenu(name, fileId) {
@@ -698,15 +766,12 @@ function addSubToMenu(name, fileId) {
         div.classList.add('selected');
         toggleMenu('subMenu');
     };
-    const container = document.getElementById('subListContainer');
-    if (container.children.length > 0) {
-        container.insertBefore(div, container.children[1]); 
-    } else {
-        container.appendChild(div);
-    }
+    document.getElementById('subListContainer').appendChild(div);
 }
 
 document.getElementById('subFileInput').addEventListener('change', async function() {
+    const wasRotatedState = isRotated; 
+    
     if(this.files[0]) {
         const file = this.files[0];
         const formData = new FormData(); 
@@ -715,17 +780,24 @@ document.getElementById('subFileInput').addEventListener('change', async functio
             const label = document.querySelector('label[for="subFileInput"]');
             const originalText = label.innerHTML;
             label.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+            
             const res = await fetch('/upload_sub', { method: 'POST', body: formData });
             const data = await res.json();
+            
             if(data.success) {
                 video.querySelectorAll('track').forEach(t => t.remove());
-                const container = document.getElementById('subListContainer');
-                container.innerHTML = '<div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>';
-                addSubToMenu(data.name, data.file_id);
-                if(container.children[1]) container.children[1].click();
+                buildSubMenu([{name: data.name, id: data.file_id}]);
+                const newOpt = document.getElementById('subListContainer').lastElementChild;
+                if(newOpt) newOpt.click();
             } else { showToast("Upload failed: " + data.error, 'danger'); }
+            
             label.innerHTML = originalText;
-        } catch(e) { showToast("Error uploading subtitle", 'danger'); } finally { toggleMenu('subMenu'); }
+        } catch(e) { showToast("Error uploading subtitle", 'danger'); } finally { 
+            toggleMenu('subMenu'); 
+            setTimeout(() => {
+                setRotationState(wasRotatedState);
+            }, 100);
+        }
     }
 });
 
@@ -738,16 +810,11 @@ function toggleSub(enable, el) {
     toggleMenu('subMenu');
 }
 
-// --- 4. Audio Tracks ---
 const langMap = {
-    'en': 'English', 'eng': 'English',
-    'hi': 'Hindi', 'hin': 'Hindi',
-    'jp': 'Japanese', 'jpn': 'Japanese',
-    'ta': 'Tamil', 'tam': 'Tamil',
-    'te': 'Telugu', 'tel': 'Telugu',
-    'ml': 'Malayalam', 'mal': 'Malayalam',
-    'kn': 'Kannada', 'kan': 'Kannada',
-    'es': 'Spanish', 'spa': 'Spanish',
+    'en': 'English', 'eng': 'English', 'hi': 'Hindi', 'hin': 'Hindi',
+    'jp': 'Japanese', 'jpn': 'Japanese', 'ta': 'Tamil', 'tam': 'Tamil',
+    'te': 'Telugu', 'tel': 'Telugu', 'ml': 'Malayalam', 'mal': 'Malayalam',
+    'kn': 'Kannada', 'kan': 'Kannada', 'es': 'Spanish', 'spa': 'Spanish',
     'fr': 'French', 'fra': 'French'
 };
 
@@ -757,7 +824,6 @@ function loadAudioTracks() {
         menu.innerHTML = ''; 
         for (let i = 0; i < video.audioTracks.length; i++) {
             const track = video.audioTracks[i];
-            // Format Language using map or default
             let lang = (track.language || '').toLowerCase();
             let label = track.label || langMap[lang] || lang || `Track ${i + 1}`;
             
@@ -779,32 +845,33 @@ function loadAudioTracks() {
     }
 }
 
-// --- 5. Core Event Listeners ---
-
 video.addEventListener('loadedmetadata', () => { 
     loadAudioTracks(); 
     loadExistingSubs(); 
 });
 
+// NEW: Show/Hide Logic including Center Button
 function showControls() {
     controls.classList.remove('ui-hidden');
     videoTitle.classList.remove('ui-hidden');
+    if(centerPlayBtn) centerPlayBtn.classList.remove('ui-hidden');
     if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden');
     
     wrapper.style.cursor = "default";
     clearTimeout(hideTimer);
     
+    // Only auto-hide if playing and no menu is open
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
             videoTitle.classList.add('ui-hidden');
+            if(centerPlayBtn) centerPlayBtn.classList.add('ui-hidden');
             if(closePlayerBtn) closePlayerBtn.classList.add('ui-hidden');
             wrapper.style.cursor = "none";
         }, 3000);
     }
 }
 
-// RESET TIMER ON ANY CONTROL CLICK
 controls.addEventListener('click', () => showControls());
 
 wrapper.addEventListener('mousemove', showControls);
@@ -814,20 +881,35 @@ wrapper.addEventListener('click', (e) => {
     }
 });
 
-playBtn.addEventListener('click', (e) => {
-    e.stopPropagation(); // Stop bubble so wrapper click doesn't fire immediately
+// NEW: Unified Play/Pause Function
+function togglePlayPause() {
     if (video.paused) { 
         video.play(); 
-        playBtn.innerHTML = '<i class="fas fa-pause"></i>'; 
+        if(centerPlayBtn) centerPlayBtn.innerHTML = '<i class="fas fa-pause"></i>'; 
         showControls(); 
     } else { 
         video.pause(); 
-        playBtn.innerHTML = '<i class="fas fa-play"></i>'; 
+        if(centerPlayBtn) centerPlayBtn.innerHTML = '<i class="fas fa-play"></i>'; 
         clearTimeout(hideTimer); 
         controls.classList.remove('ui-hidden'); 
         videoTitle.classList.remove('ui-hidden');
+        if(centerPlayBtn) centerPlayBtn.classList.remove('ui-hidden');
         if(closePlayerBtn) closePlayerBtn.classList.remove('ui-hidden');
     }
+}
+
+// Center Button Click Event
+if(centerPlayBtn) {
+    centerPlayBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent wrapper click trigger
+        togglePlayPause();
+    });
+}
+
+// Video Click Event (Toggles Play/Pause)
+video.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePlayPause();
 });
 
 progressBg.addEventListener('click', (e) => {
@@ -852,10 +934,7 @@ function fmt(s) {
 }
 
 fsBtn.addEventListener('click', () => { 
-    if (isPortrait) toggleRotation(); 
-    else { 
-        (!document.fullscreenElement) ? wrapper.requestFullscreen() : document.exitFullscreen(); 
-    } 
+    toggleRotation(); 
 });
 
 volSlider.addEventListener('input', (e) => { video.volume = e.target.value; });
