@@ -1,7 +1,7 @@
 // - Complete Client Logic
 
 // =========================================================
-// 1. THEME CONFIGURATION (Initialization is now in base.html)
+// 1. THEME CONFIGURATION
 // =========================================================
 
 const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
@@ -21,7 +21,6 @@ function updateThemeIcon(isDark) {
     if(themeIcon) themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 }
 
-// Sync UI with current state
 const currentDarkMode = localStorage.getItem('themeMode'); 
 if (currentDarkMode === 'dark') {
     if(toggle) toggle.checked = true;
@@ -33,7 +32,6 @@ if (currentDarkMode === 'dark') {
 const currentThemeName = localStorage.getItem('themeName') || 'default';
 if(themeSelect) themeSelect.value = currentThemeName;
 
-// Dark Mode Toggle Listener
 if(toggle) {
     toggle.addEventListener('change', () => {
         const isDark = toggle.checked;
@@ -43,15 +41,12 @@ if(toggle) {
     });
 }
 
-// Theme Apply Button Listener
 if(applyThemeBtn && themeSelect) {
     applyThemeBtn.addEventListener('click', () => {
         const themeName = themeSelect.value;
         const modalEl = document.getElementById('settingsModal');
         if(modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-        
         if(themeName === localStorage.getItem('themeName')) return;
-
         if(themeLoader) themeLoader.classList.remove('d-none');
         
         let newUrl = DEFAULT_THEME_URL;
@@ -59,18 +54,12 @@ if(applyThemeBtn && themeSelect) {
             newUrl = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${themeName}/bootstrap.min.css`;
         }
 
-        const safetyTimer = setTimeout(() => { 
-            if(themeLoader) themeLoader.classList.add('d-none'); 
-        }, 5000);
-
+        const safetyTimer = setTimeout(() => { if(themeLoader) themeLoader.classList.add('d-none'); }, 5000);
         themeLink.href = newUrl;
         localStorage.setItem('themeName', themeName);
-
         themeLink.onload = () => {
             clearTimeout(safetyTimer);
-            setTimeout(() => { 
-                if(themeLoader) themeLoader.classList.add('d-none'); 
-            }, 600);
+            setTimeout(() => { if(themeLoader) themeLoader.classList.add('d-none'); }, 600);
         };
         themeLink.onerror = () => {
             clearTimeout(safetyTimer);
@@ -88,11 +77,9 @@ socket.on('connect', () => {
     const status = document.getElementById('connectionStatus');
     status.className = 'badge bg-success';
     status.innerHTML = '<i class="bi bi-wifi"></i> Connected';
-    
     document.getElementById('activeDownloads').innerHTML = `
         <div id="emptyState" class="text-center py-5 text-muted opacity-50 border rounded-3 border-dashed bg-body-tertiary">
-            <i class="bi bi-cloud-download display-1"></i>
-            <p class="mt-3">No active downloads running</p>
+            <i class="bi bi-cloud-download display-1"></i><p class="mt-3">No active downloads running</p>
         </div>`;
     activeDownloadCount = 0;
     document.getElementById('activeCount').innerText = 0;
@@ -110,24 +97,165 @@ socket.on('download_complete', (data) => handleComplete(data));
 socket.on('download_error', (data) => handleError(data));
 socket.on('download_paused', (data) => handlePaused(data));
 
-document.getElementById('downloadForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const url = document.getElementById('url').value.trim();
-    const custom = document.getElementById('customFilename').value.trim();
-    const mode = custom ? 'custom' : 'original';
-    
-    if(!url) return showToast('Please enter a URL', 'danger');
-    
-    socket.emit('start_download', {
-        url: url,
-        filename_mode: mode,
-        custom_filename: custom
+// --- DIRECT DOWNLOAD FORM ---
+if(document.getElementById('downloadForm')) {
+    document.getElementById('downloadForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const url = document.getElementById('url').value.trim();
+        const custom = document.getElementById('customFilename').value.trim();
+        const mode = custom ? 'custom' : 'original';
+        if(!url) return showToast('Please enter a URL', 'danger');
+        
+        socket.emit('start_download', {
+            url: url,
+            filename_mode: mode,
+            custom_filename: custom,
+            mode: 'direct'
+        });
+        showToast('Download started', 'primary');
+        document.getElementById('url').value = '';
+        document.getElementById('customFilename').value = '';
+        document.getElementById('filenamePreviewWrapper').style.display = 'none';
     });
-    showToast('Download started', 'primary');
+}
+
+// --- YOUTUBE FORM LOGIC (Fully Updated) ---
+document.addEventListener('DOMContentLoaded', function() {
+    const ytForm = document.getElementById('youtubeForm');
+    const ytInput = document.getElementById('ytUrl');
+    const ytDownloadBtn = document.getElementById('ytDownloadBtn');
     
-    document.getElementById('url').value = '';
-    document.getElementById('customFilename').value = '';
-    document.getElementById('filenamePreviewWrapper').style.display = 'none';
+    // UI Containers for Options
+    const ytOptionsWrapper = document.getElementById('ytOptionsWrapper');
+    const ytLoading = document.getElementById('ytLoading');
+    const ytQualityList = document.getElementById('ytQualityList');
+    
+    // Elements for Preview/Edit
+    const ytCustom = document.getElementById('ytCustomFilename');
+    const ytPreview = document.getElementById('ytFilenamePreview');
+    const ytDisplayMode = document.getElementById('ytPreviewModeDisplay');
+    const ytEditBtn = document.getElementById('ytEditBtn');
+    
+    let ytDebounceTimer;
+
+    // 1. Debounce Input & Trigger Fetch
+    if(ytInput) {
+        ytInput.addEventListener('input', () => {
+             // Reset UI immediately when user types
+             if(ytOptionsWrapper) ytOptionsWrapper.classList.add('d-none');
+             if(ytDownloadBtn) ytDownloadBtn.disabled = true;
+             
+             clearTimeout(ytDebounceTimer);
+             const url = ytInput.value.trim();
+             
+             // Only fetch if it looks like YouTube
+             if(url && (url.includes('youtube.com') || url.includes('youtu.be'))) {
+                 ytDebounceTimer = setTimeout(() => fetchYoutubeInfo(url), 1000); // 1s debounce
+             }
+        });
+    }
+
+    // 2. Fetch Video Info (Titles + Formats)
+    function fetchYoutubeInfo(url) {
+        if(!ytLoading) return;
+        ytLoading.classList.remove('d-none');
+        
+        fetch('/get_yt_info', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url})
+        })
+        .then(r => r.json())
+        .then(data => {
+            ytLoading.classList.add('d-none');
+            
+            if(data.success) {
+                // A. Setup Filename Editor
+                if(ytPreview) ytPreview.innerText = data.title;
+                if(ytCustom) ytCustom.value = data.title; 
+                if(ytDisplayMode) ytDisplayMode.style.display = 'flex';
+                if(ytCustom) ytCustom.style.display = 'none';
+
+                // B. Setup Quality Radio Buttons
+                if(ytQualityList) {
+                    ytQualityList.innerHTML = data.formats.map((fmt, index) => {
+                        const isChecked = index === 0 ? 'checked' : '';
+                        const badgeClass = fmt.type === 'audio' ? 'bg-info' : 'bg-primary';
+                        const icon = fmt.type === 'audio' ? 'bi-music-note-beamed' : 'bi-film';
+                        
+                        return `
+                        <label class="list-group-item d-flex justify-content-between align-items-center rounded-2 mb-1 p-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <input class="form-check-input me-1" type="radio" name="ytQuality" value="${fmt.id}" ${isChecked}>
+                                <i class="bi ${icon}"></i>
+                                <span>${fmt.label}</span>
+                            </div>
+                            <span class="badge ${badgeClass} rounded-pill font-monospace">${fmt.size}</span>
+                        </label>`;
+                    }).join('');
+                }
+
+                // C. Show UI & Enable Button
+                if(ytOptionsWrapper) ytOptionsWrapper.classList.remove('d-none');
+                if(ytDownloadBtn) ytDownloadBtn.disabled = false;
+
+            } else {
+                showToast("Failed to fetch info: " + (data.error || "Unknown"), 'warning');
+            }
+        })
+        .catch(err => {
+            ytLoading.classList.add('d-none');
+            console.error(err);
+        });
+    }
+
+    // 3. Edit Filename Toggle
+    if(ytEditBtn && ytCustom) {
+        ytEditBtn.addEventListener('click', () => {
+            if(ytDisplayMode) ytDisplayMode.style.display = 'none';
+            ytCustom.style.display = 'block';
+            ytCustom.focus();
+        });
+    }
+
+    // 4. Form Submit
+    if (ytForm && ytInput) {
+        ytForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const url = ytInput.value.trim();
+            
+            // Get custom filename
+            let customName = null;
+            if(ytCustom && ytCustom.style.display !== 'none' && ytCustom.value.trim()) {
+                customName = ytCustom.value.trim();
+            } else if (ytPreview) {
+                // Fallback to the preview text if user didn't open edit mode
+                customName = ytPreview.innerText.trim();
+            }
+
+            // Get Selected Quality
+            const selectedRadio = document.querySelector('input[name="ytQuality"]:checked');
+            if (!selectedRadio) {
+                return showToast('Please select a quality option', 'warning');
+            }
+            const quality = selectedRadio.value;
+
+            if(!url) return showToast('Please enter a YouTube URL', 'danger');
+
+            socket.emit('start_download', {
+                url: url,
+                mode: 'youtube',
+                custom_filename: customName,
+                quality: quality
+            });
+            showToast('Starting YouTube Download...', 'danger');
+            
+            // Reset UI
+            ytInput.value = '';
+            if(ytOptionsWrapper) ytOptionsWrapper.classList.add('d-none');
+            if(ytDownloadBtn) ytDownloadBtn.disabled = true;
+        });
+    }
 });
 
 // Helper: Create Download Item HTML
@@ -174,10 +302,20 @@ function updateDownloadUI(data) {
         document.getElementById('activeCount').innerText = activeDownloadCount;
     } else {
         el.classList.remove('paused', 'error');
+        
+        // Handle Button Visibility Logic
         const pauseBtn = el.querySelector('.btn-pause');
         const resumeBtn = el.querySelector('.btn-resume');
-        if(pauseBtn) pauseBtn.style.display = 'inline-block';
-        if(resumeBtn) resumeBtn.style.display = 'none';
+        
+        // HIDE PAUSE FOR YOUTUBE TASKS (Detected via data.type flag)
+        if (data.type === 'youtube') {
+            if(pauseBtn) pauseBtn.style.display = 'none';
+            if(resumeBtn) resumeBtn.style.display = 'none';
+        } else {
+            // Restore normal behavior for direct downloads
+            if(pauseBtn) pauseBtn.style.display = 'inline-block';
+            if(resumeBtn) resumeBtn.style.display = 'none';
+        }
     }
 
     const bar = el.querySelector('.progress-bar');
@@ -205,7 +343,15 @@ function updateDownloadUI(data) {
     el.querySelector('.percent').innerText = `${data.percentage.toFixed(1)}%`;
     el.querySelector('.speed').innerText = data.speed;
     el.querySelector('.eta').innerText = data.eta;
-    el.querySelector('.downloaded').innerText = formatBytes(data.downloaded) + ' / ' + formatBytes(data.total_size);
+    
+    // UPDATED: Handle dynamic sizes better (Shows "..." if fetching, fixes 0/0 issue)
+    const downloadedStr = formatBytes(data.downloaded);
+    const totalStr = (data.total_size && data.total_size > 0) ? formatBytes(data.total_size) : '...';
+    
+    const sizeDisplay = el.querySelector('.downloaded');
+    if (sizeDisplay) {
+        sizeDisplay.innerText = `${downloadedStr} / ${totalStr}`;
+    }
 }
 
 function handleComplete(data) {
@@ -386,6 +532,11 @@ async function pasteText(id) {
         el.value = text;
         if(id === 'url') debounceDirectUrl(true);
         if(id === 'gdriveUrl') debounceConvertGDrive(true);
+        // Added trigger for YouTube input
+        if(id === 'ytUrl') {
+             // Manually trigger input event to start filename detection
+             el.dispatchEvent(new Event('input'));
+        }
     } catch(e) { showToast('Clipboard access denied or empty', 'warning'); }
 }
 
@@ -487,42 +638,30 @@ function copyGDriveLink() {
 }
 
 // =========================================================
-// UPDATED LIBRARY LOGIC (New Icons + Conditional Play)
+// UPDATED LIBRARY LOGIC
 // =========================================================
 
-/**
- * Maps file extensions to specific Bootstrap icons and colors.
- */
 function getFileIcon(filename) {
     if (!filename) return 'bi-file-earmark-fill text-secondary';
-    
     const ext = filename.split('.').pop().toLowerCase();
-    
     const iconMap = {
-        // Archives (Zip, Rar, etc.) - Yellow/Warning Color
         'zip': 'bi-file-earmark-zip-fill text-warning',
         'rar': 'bi-file-earmark-zip-fill text-warning',
         '7z': 'bi-file-earmark-zip-fill text-warning',
         'tar': 'bi-file-earmark-zip-fill text-warning',
         'gz':  'bi-file-earmark-zip-fill text-warning',
         'bz2': 'bi-file-earmark-zip-fill text-warning',
-
-        // Video formats - Red/Danger Color
         'mp4': 'bi-file-earmark-play-fill text-danger',
         'mkv': 'bi-file-earmark-play-fill text-danger',
         'webm':'bi-file-earmark-play-fill text-danger',
         'mov': 'bi-file-earmark-play-fill text-danger',
         'avi': 'bi-file-earmark-play-fill text-danger',
         'm4v': 'bi-file-earmark-play-fill text-danger',
-
-        // Audio formats - Cyan/Info Color
         'mp3': 'bi-file-earmark-music-fill text-info',
         'wav': 'bi-file-earmark-music-fill text-info',
         'm4a': 'bi-file-earmark-music-fill text-info',
         'flac':'bi-file-earmark-music-fill text-info',
         'aac': 'bi-file-earmark-music-fill text-info',
-
-        // Documents - Blue/Primary Color
         'doc': 'bi-file-earmark-word-fill text-primary',
         'docx':'bi-file-earmark-word-fill text-primary',
         'pdf': 'bi-file-earmark-pdf-fill text-danger',
@@ -531,32 +670,22 @@ function getFileIcon(filename) {
         'ppt': 'bi-file-earmark-ppt-fill text-warning',
         'pptx':'bi-file-earmark-ppt-fill text-warning',
         'txt': 'bi-file-earmark-text-fill text-secondary',
-
-        // Images - Green/Success Color
         'jpg': 'bi-file-earmark-image-fill text-success',
         'jpeg':'bi-file-earmark-image-fill text-success',
         'png': 'bi-file-earmark-image-fill text-success',
         'gif': 'bi-file-earmark-image-fill text-success',
         'webp':'bi-file-earmark-image-fill text-success',
-        
-        // Code
         'py': 'bi-file-earmark-code-fill text-primary',
         'js': 'bi-file-earmark-code-fill text-warning',
         'html':'bi-file-earmark-code-fill text-danger',
         'css': 'bi-file-earmark-code-fill text-info'
     };
-
-    // Return the mapped icon or a default generic file icon
     return iconMap[ext] || 'bi-file-earmark-fill text-secondary';
 }
 
-/**
- * Checks if a file is a video format supported by the player.
- */
 function isVideo(filename) {
     if (!filename) return false;
     const ext = filename.split('.').pop().toLowerCase();
-    // Only these extensions will get a Play button
     return ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v'].includes(ext);
 }
 
@@ -568,7 +697,6 @@ function loadSavedFiles() {
     .then(r => r.json())
     .then(data => {
         const c = document.getElementById('savedFilesList');
-        // Safety check if the element exists in current view
         if(!c) return;
 
         if(data.files.length === 0) {
@@ -578,8 +706,6 @@ function loadSavedFiles() {
                 const iconClass = getFileIcon(f.name);
                 const showPlay = isVideo(f.name);
                 
-                // LOGIC: If it is NOT a video, playBtn is an empty string.
-                // This ensures the button completely disappears for Zip/PDF/MP3.
                 const playBtn = showPlay ? 
                     `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')" title="Play Video"><i class="bi bi-play-circle-fill fs-5"></i></button>` 
                     : '';
@@ -592,15 +718,14 @@ function loadSavedFiles() {
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
                     <div class="card-body p-2 d-flex align-items-center">
                         <span class="fs-4 me-3"><i class="bi ${iconClass}"></i></span>
-                        
                         <div class="overflow-hidden me-auto">
                             <div class="fw-bold text-truncate" title="${f.name}">${f.name}</div>
                             <small class="text-muted">${formatBytes(f.size)} • ${f.date}</small>
                         </div>
-                        
                         <div class="d-flex align-items-center">
                             ${downloadBtn}
-                            ${playBtn} <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')" title="Delete"><i class="bi bi-trash"></i></button>
+                            ${playBtn}
+                            <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')" title="Delete"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
                 </div>`;
@@ -625,19 +750,17 @@ const centerPlayBtn = document.getElementById('centerPlayBtn');
 
 const progressBg = document.getElementById('progressBg');
 const progressFill = document.getElementById('progressFill');
-const spinner = document.getElementById('bufferingIcon');
 const zoomIcon = document.getElementById('zoomIcon');
 const zoomBtn = document.getElementById('zoomBtn'); 
 const speedBtn = document.getElementById('speedBtn');
 const qualityBtn = document.getElementById('qualityBtn');
-const fsBtn = document.getElementById('fsBtn');
 const volSlider = document.getElementById('volSlider');
 const muteBtn = document.getElementById('muteBtn');
 const closePlayerBtn = document.getElementById('closePlayerBtn');
 
 let playerModalInstance = null;
 let hideTimer;
-let isRotated = false; // "Landscape/90deg" mode
+let isOverlay = false; 
 let zoomIdx = 0;
 let subOffset = 0; 
 
@@ -655,20 +778,14 @@ function openPlayer(filename, driveId = null) {
     document.getElementById('currTime').innerText = "00:00";
     document.getElementById('durTime').innerText = "00:00";
     
-    // RESET STATE
-    setRotationState(false); 
-    
-    // RESET ZOOM
+    toggleOverlay(false); // Reset to normal mode on open
     zoomIdx = 0;
     video.style.objectFit = 'contain';
     video.style.transform = ''; 
     if(zoomBtn) zoomBtn.style.display = 'none'; 
     if(zoomIcon) zoomIcon.className = 'fas fa-expand';
     
-    // RESET SUB SYNC
     subOffset = 0;
-    
-    // RESET PLAY BUTTON
     if(centerPlayBtn) centerPlayBtn.innerHTML = '<i class="fas fa-play"></i>';
     
     if(qualityBtn) {
@@ -731,84 +848,79 @@ function setSpeed(rate, el) {
 function setQuality(qual, el) { }
 
 function cycleZoom() {
-    if (!isRotated) return; 
+    if (!isOverlay) return; 
     zoomIdx = (zoomIdx + 1) % zoomModes.length;
     const mode = zoomModes[zoomIdx];
     
+    // Reset transform before applying new mode
     video.style.transform = ''; 
     
     if (mode === 'smart-crop') {
-        video.style.objectFit = 'contain'; 
-        video.style.transform = 'scale(1.35)'; 
+        video.style.objectFit = 'cover'; 
+        video.style.transform = 'scale(1.2)'; 
     } else {
         video.style.objectFit = mode;
     }
-    zoomIcon.className = 'fas ' + zoomIcons[zoomIdx];
+    
+    if(zoomIcon) zoomIcon.className = 'fas ' + zoomIcons[zoomIdx];
+    showToast('Zoom: ' + mode, 'primary');
 }
 
-function setRotationState(active) {
-    isRotated = active;
-    
-    wrapper.classList.add('player-landscape');
-    
-    // Select Bootstrap modal elements that might trap fixed positioning
+function toggleOverlay(active) {
+    isOverlay = active;
     const dialog = document.querySelector('#playerModal .modal-dialog');
     const content = document.querySelector('#playerModal .modal-content');
 
-    if (isRotated) {
-        // ROTATED / LANDSCAPE MODE
-        
-        // A. NEUTRALIZE MODAL PARENTS (Fixes "Sliding/Bottom" Bug)
+    if (isOverlay) {
+        // 1. Force Browser Fullscreen
+        if (wrapper.requestFullscreen) {
+            wrapper.requestFullscreen().catch(err => console.log("Fullscreen blocked:", err));
+        } else if (wrapper.webkitRequestFullscreen) { /* Safari */
+            wrapper.webkitRequestFullscreen();
+        }
+
+        // 2. CSS Overlay (Escaping the Modal)
         if(dialog) {
             dialog.style.setProperty('transform', 'none', 'important');
             dialog.style.setProperty('max-width', 'none', 'important');
             dialog.style.setProperty('margin', '0', 'important');
-            dialog.style.setProperty('transition', 'none', 'important'); // Stop animations
+            dialog.style.setProperty('transition', 'none', 'important'); 
         }
         if(content) {
              content.style.setProperty('border', 'none', 'important');
-             content.style.setProperty('background', 'transparent', 'important'); // Fallback
+             content.style.setProperty('background', 'black', 'important'); 
+             content.style.setProperty('height', '100vh', 'important');
         }
 
-        // B. FORCE WRAPPER TO GLASS (Fake Fullscreen)
+        // 3. Wrapper Styles - Fill Screen (No Rotation)
         wrapper.style.setProperty('position', 'fixed', 'important');
         wrapper.style.setProperty('top', '0', 'important');
         wrapper.style.setProperty('left', '0', 'important');
         wrapper.style.setProperty('width', '100vw', 'important');
         wrapper.style.setProperty('height', '100vh', 'important');
         wrapper.style.setProperty('z-index', '9999', 'important');
-        wrapper.style.setProperty('max-width', 'none', 'important');
-        wrapper.style.setProperty('max-height', 'none', 'important');
         wrapper.style.borderRadius = '0';
 
-        // Rotate Inner
-        rotator.style.transform = "rotate(90deg)";
-        rotator.style.width = "100vh"; 
-        rotator.style.height = "100vw";
-        rotator.style.position = "absolute";
-        rotator.style.top = "50%"; 
-        rotator.style.left = "50%";
-        rotator.style.marginTop = "-50vw"; 
-        rotator.style.marginLeft = "-50vh";
+        // Ensure rotator container is neutral
+        rotator.style.width = "100%"; 
+        rotator.style.height = "100%";
+        rotator.style.transform = "none"; 
         
-        if (wrapper.requestFullscreen) {
-            wrapper.requestFullscreen().catch(() => {});
-        }
-
+        // Show Zoom button
         if(zoomBtn) zoomBtn.style.display = 'inline-block';
         
-        const mode = zoomModes[zoomIdx];
-        if (mode === 'smart-crop') {
-            video.style.objectFit = 'contain';
-            video.style.transform = 'scale(1.35)';
-        } else {
-            video.style.objectFit = mode;
-        }
+        // Update Icon
+        fsBtn.innerHTML = '<i class="fas fa-compress"></i>';
 
     } else {
-        // DEFAULT / PORTRAIT MODE
-        
-        // A. RESTORE MODAL PARENTS
+        // Exit Browser Fullscreen
+        if (document.exitFullscreen && document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        } else if (document.webkitExitFullscreen && document.webkitFullscreenElement) {
+            document.webkitExitFullscreen();
+        }
+
+        // Reset Modal Styles
         if(dialog) {
             dialog.style.removeProperty('transform');
             dialog.style.removeProperty('max-width');
@@ -818,40 +930,24 @@ function setRotationState(active) {
         if(content) {
              content.style.removeProperty('border');
              content.style.removeProperty('background'); 
+             content.style.removeProperty('height');
         }
 
-        // B. RESTORE WRAPPER
+        // Reset Wrapper Styles
         wrapper.style.position = '';
         wrapper.style.top = '';
         wrapper.style.left = '';
-        wrapper.style.width = '100%';
+        wrapper.style.width = '';
         wrapper.style.height = '';
         wrapper.style.zIndex = '';
-        wrapper.style.maxWidth = '';
-        wrapper.style.maxHeight = ''; 
         wrapper.style.borderRadius = ''; 
 
-        rotator.style.transform = "rotate(0deg)";
-        rotator.style.width = "100%"; 
-        rotator.style.height = "100%";
-        rotator.style.position = "relative";
-        rotator.style.marginTop = "0"; 
-        rotator.style.marginLeft = "0";
-        rotator.style.top = "0"; 
-        rotator.style.left = "0";
-        
-        if (document.exitFullscreen && document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-        }
+        // Reset Rotator
+        rotator.style.transform = "";
         
         if(zoomBtn) zoomBtn.style.display = 'none';
-        video.style.objectFit = 'contain'; 
-        video.style.transform = ''; 
+        fsBtn.innerHTML = '<i class="fas fa-expand"></i>';
     }
-}
-
-function toggleRotation() {
-    setRotationState(!isRotated);
 }
 
 async function togglePiP() {
@@ -926,8 +1022,7 @@ function addSubToMenu(name, fileId) {
 }
 
 document.getElementById('subFileInput').addEventListener('change', async function() {
-    const wasRotatedState = isRotated; 
-    
+    const wasOverlay = isOverlay; 
     if(this.files[0]) {
         const file = this.files[0];
         const formData = new FormData(); 
@@ -936,23 +1031,19 @@ document.getElementById('subFileInput').addEventListener('change', async functio
             const label = document.querySelector('label[for="subFileInput"]');
             const originalText = label.innerHTML;
             label.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-            
             const res = await fetch('/upload_sub', { method: 'POST', body: formData });
             const data = await res.json();
-            
             if(data.success) {
                 video.querySelectorAll('track').forEach(t => t.remove());
                 buildSubMenu([{name: data.name, id: data.file_id}]);
                 const newOpt = document.getElementById('subListContainer').lastElementChild;
                 if(newOpt) newOpt.click();
             } else { showToast("Upload failed: " + data.error, 'danger'); }
-            
             label.innerHTML = originalText;
         } catch(e) { showToast("Error uploading subtitle", 'danger'); } finally { 
             toggleMenu('subMenu'); 
-            setTimeout(() => {
-                setRotationState(wasRotatedState);
-            }, 100);
+            // Restore overlay state if needed
+            if (wasOverlay) toggleOverlay(true);
         }
     }
 });
@@ -966,14 +1057,6 @@ function toggleSub(enable, el) {
     toggleMenu('subMenu');
 }
 
-const langMap = {
-    'en': 'English', 'eng': 'English', 'hi': 'Hindi', 'hin': 'Hindi',
-    'jp': 'Japanese', 'jpn': 'Japanese', 'ta': 'Tamil', 'tam': 'Tamil',
-    'te': 'Telugu', 'tel': 'Telugu', 'ml': 'Malayalam', 'mal': 'Malayalam',
-    'kn': 'Kannada', 'kan': 'Kannada', 'es': 'Spanish', 'spa': 'Spanish',
-    'fr': 'French', 'fra': 'French'
-};
-
 function loadAudioTracks() {
     const menu = document.getElementById('audioMenu');
     if (video.audioTracks && video.audioTracks.length > 0) {
@@ -981,7 +1064,7 @@ function loadAudioTracks() {
         for (let i = 0; i < video.audioTracks.length; i++) {
             const track = video.audioTracks[i];
             let lang = (track.language || '').toLowerCase();
-            let label = track.label || langMap[lang] || lang || `Track ${i + 1}`;
+            let label = track.label || lang || `Track ${i + 1}`;
             
             const div = document.createElement('div');
             div.className = 'menu-opt';
@@ -1006,7 +1089,6 @@ video.addEventListener('loadedmetadata', () => {
     loadExistingSubs(); 
 });
 
-// Show/Hide Logic including Center Button
 function showControls() {
     controls.classList.remove('ui-hidden');
     videoTitle.classList.remove('ui-hidden');
@@ -1016,7 +1098,6 @@ function showControls() {
     wrapper.style.cursor = "default";
     clearTimeout(hideTimer);
     
-    // Only auto-hide if playing and no menu is open
     if (!video.paused && !document.querySelector('.popup-menu.active')) {
         hideTimer = setTimeout(() => {
             controls.classList.add('ui-hidden');
@@ -1037,7 +1118,6 @@ wrapper.addEventListener('click', (e) => {
     }
 });
 
-// Unified Play/Pause Function
 function togglePlayPause() {
     if (video.paused) { 
         video.play(); 
@@ -1054,15 +1134,13 @@ function togglePlayPause() {
     }
 }
 
-// Center Button Click Event
 if(centerPlayBtn) {
     centerPlayBtn.addEventListener('click', (e) => {
-        e.stopPropagation(); // Prevent wrapper click trigger
+        e.stopPropagation(); 
         togglePlayPause();
     });
 }
 
-// Video Click Event (Toggles Play/Pause)
 video.addEventListener('click', (e) => {
     e.stopPropagation();
     togglePlayPause();
@@ -1089,8 +1167,26 @@ function fmt(s) {
     return (m<10?'0'+m:m) + ':' + (sc<10?'0'+sc:sc); 
 }
 
-fsBtn.addEventListener('click', () => { 
-    toggleRotation(); 
+const fsBtn = document.getElementById('fsBtn');
+if(fsBtn) {
+    fsBtn.addEventListener('click', (e) => { 
+        e.stopPropagation();
+        toggleOverlay(!isOverlay); 
+    });
+}
+
+// Add escape key listener to exit overlay
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOverlay) {
+        toggleOverlay(false);
+    }
+});
+
+// Sync with browser fullscreen changes (e.g. if user presses Esc)
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isOverlay) {
+        toggleOverlay(false);
+    }
 });
 
 volSlider.addEventListener('input', (e) => { video.volume = e.target.value; });
@@ -1107,67 +1203,64 @@ document.getElementById('playerModal').addEventListener('hidden.bs.modal', funct
 
 
 // =========================================================
-// 4. SIDEBAR NAVIGATION LOGIC (UPDATED WITH URL STATE)
+// 4. SIDEBAR NAVIGATION LOGIC
 // =========================================================
 
 function switchView(viewName, navElement) {
     const directSection = document.getElementById('section-direct');
     const driveSection = document.getElementById('section-drive');
+    const ytSection = document.getElementById('section-youtube');
     const breadcrumb = document.getElementById('breadcrumbCurrent');
     
-    // 1. Update Sidebar Active State
     document.querySelectorAll('.sidebar-nav .nav-link').forEach(el => {
         el.classList.remove('active');
     });
-    // If navElement isn't passed (e.g., on load/popstate), try to find the matching link
     if (!navElement) {
         if(viewName === 'dashboard') navElement = document.querySelector('a[onclick*="dashboard"]');
         if(viewName === 'direct') navElement = document.querySelector('a[onclick*="direct"]');
         if(viewName === 'drive') navElement = document.querySelector('a[onclick*="drive"]');
+        if(viewName === 'youtube') navElement = document.querySelector('a[onclick*="youtube"]');
     }
     if(navElement) navElement.classList.add('active');
 
-    // 2. URL STATE MANAGEMENT (The Fix for Refresh)
-    // We update the browser URL without reloading so the server knows where we are on refresh
     let newPath = "/";
     if (viewName === 'direct') newPath = "/direct";
     else if (viewName === 'drive') newPath = "/drive";
+    else if (viewName === 'youtube') newPath = "/youtube";
     
-    // Only push state if the URL is actually changing
     if (window.location.pathname !== newPath) {
         window.history.pushState({ view: viewName }, "", newPath);
     }
 
-    // 3. Toggle Forms Logic
+    [directSection, driveSection, ytSection].forEach(el => {
+        if(el) el.classList.remove('d-none', 'col-12', 'col-lg-6', 'mt-3', 'mt-lg-0');
+    });
+
     if (viewName === 'dashboard') {
-        directSection.classList.remove('d-none');
-        directSection.classList.replace('col-12', 'col-lg-6');
-        
-        driveSection.classList.remove('d-none');
-        driveSection.classList.replace('col-12', 'col-lg-6');
-        driveSection.classList.add('mt-3', 'mt-lg-0');
-        
+        directSection.classList.add('col-lg-6');
+        driveSection.classList.add('col-lg-6', 'mt-3', 'mt-lg-0');
+        if(ytSection) ytSection.classList.add('d-none');
         if(breadcrumb) breadcrumb.innerText = 'Dashboard';
     } 
     else if (viewName === 'direct') {
         driveSection.classList.add('d-none');
-        
-        directSection.classList.remove('d-none');
-        directSection.classList.replace('col-lg-6', 'col-12');
-        
+        if(ytSection) ytSection.classList.add('d-none');
+        directSection.classList.add('col-12');
         if(breadcrumb) breadcrumb.innerText = 'Direct URL Downloader';
     } 
     else if (viewName === 'drive') {
         directSection.classList.add('d-none');
-        
-        driveSection.classList.remove('d-none');
-        driveSection.classList.replace('col-lg-6', 'col-12');
-        driveSection.classList.remove('mt-3', 'mt-lg-0');
-        
+        if(ytSection) ytSection.classList.add('d-none');
+        driveSection.classList.add('col-12');
         if(breadcrumb) breadcrumb.innerText = 'Google Drive Link Generator';
     }
+    else if (viewName === 'youtube') { 
+        directSection.classList.add('d-none');
+        driveSection.classList.add('d-none');
+        if(ytSection) ytSection.classList.add('col-12');
+        if(breadcrumb) breadcrumb.innerText = 'YouTube Downloader';
+    }
 
-    // 4. Mobile sidebar auto-close
     const sidebar = document.getElementById('sidebarMenu');
     if (sidebar && window.innerWidth < 768) {
         const bsOffcanvas = bootstrap.Offcanvas.getInstance(sidebar);
@@ -1175,15 +1268,14 @@ function switchView(viewName, navElement) {
     }
 }
 
-// Handle Browser "Back" Button
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.view) {
         switchView(event.state.view, null); 
     } else {
-        // Fallback: detect from URL
         const path = window.location.pathname;
         if(path.includes('direct')) switchView('direct', null);
         else if(path.includes('drive')) switchView('drive', null);
+        else if(path.includes('youtube')) switchView('youtube', null);
         else switchView('dashboard', null);
     }
 });
