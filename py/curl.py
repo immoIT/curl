@@ -9,11 +9,21 @@ import mimetypes
 import psutil 
 import io
 import threading
-import cv2 
 import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
+
+# --- DEPENDENCY CHECKS (Termux vs Server) ---
+
+# 1. OpenCV Check: Prevents crash if cv2/libavcodec is missing
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    OPENCV_AVAILABLE = False
+    print("System: OpenCV (cv2) not found. Video resolution probing will fallback to metadata.")
 
 # --- GOOGLE DRIVE IMPORTS ---
 from google.auth.transport.requests import Request
@@ -210,7 +220,16 @@ def format_time(seconds):
 
 @curl_bp.route("/", methods=["GET"])
 def index():
-    return render_template('curl.html')
+    # Supports the dashboard logic from curl2.py
+    return render_template('curl.html', active_view='dashboard')
+
+@curl_bp.route("/direct", methods=["GET"])
+def direct_view():
+    return render_template('curl.html', active_view='direct')
+
+@curl_bp.route("/drive", methods=["GET"])
+def drive_view():
+    return render_template('curl.html', active_view='drive')
 
 # --- HEALTH CHECK ROUTE ---
 @curl_bp.route("/healthz", methods=["GET"])
@@ -301,32 +320,43 @@ def get_video_meta(file_id):
     headers = {"Authorization": f"Bearer {creds.token}"}
     
     try:
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-            with requests.get(stream_url, headers=headers, stream=True) as r:
-                for chunk in r.iter_content(chunk_size=4096):
-                    tmp_file.write(chunk)
-                    if tmp_file.tell() > 10 * 1024 * 1024: 
-                        break
+        # CHECK: Only attempt chunk download if OpenCV is installed
+        tmp_path = None
+        if OPENCV_AVAILABLE:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+                with requests.get(stream_url, headers=headers, stream=True) as r:
+                    for chunk in r.iter_content(chunk_size=4096):
+                        tmp_file.write(chunk)
+                        if tmp_file.tell() > 10 * 1024 * 1024: 
+                            break
         
         width, height = 0, 0
-        cap = cv2.VideoCapture(tmp_path)
-        if cap.isOpened():
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap.release()
+        source = 'metadata'
+
+        # Only use OpenCV if available and file exists
+        if OPENCV_AVAILABLE and tmp_path:
+            try:
+                cap = cv2.VideoCapture(tmp_path)
+                if cap.isOpened():
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    cap.release()
+                    source = 'opencv_probe'
+            except Exception as e:
+                print(f"OpenCV Probe Error: {e}")
         
-        if os.path.exists(tmp_path):
+        # Cleanup temp file
+        if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
+        # Fallback to Google Drive Metadata (Always used in Termux if CV2 missing)
         if width == 0 or height == 0:
             meta = get_file_metadata(file_id)
             video_meta = meta.get('videoMediaMetadata', {})
             width = video_meta.get('width', 0)
             height = video_meta.get('height', 0)
-            source = 'metadata'
-        else:
-            source = 'opencv_probe'
+            source = 'metadata_fallback'
 
         return jsonify({
             'width': width,
@@ -601,15 +631,20 @@ def download_with_smart_filename(controller, socketio_instance):
 # --- SOCKET ---
 
 def background_system_stats(socketio):
+    # Runs in a separate thread. Using time.sleep is safe here because this 
+    # thread is separated from the main event loop if one exists.
     while True:
         try:
             mem = psutil.virtual_memory()
             socketio.emit('server_stats', {"ram": mem.percent})
-            socketio.sleep(2)
-        except: socketio.sleep(5)
+            time.sleep(2) 
+        except Exception: 
+            time.sleep(5)
 
 def register_socket_events(socketio):
-    socketio.start_background_task(background_system_stats, socketio)
+    # Using standard threading is the most robust way to support both
+    # Termux (often no eventlet) and Server (eventlet enabled).
+    threading.Thread(target=background_system_stats, args=(socketio,), daemon=True).start()
 
     @socketio.on('connect')
     def handle_connect():
@@ -628,7 +663,8 @@ def register_socket_events(socketio):
             'download_id': did, 'filename': 'Starting...', 'phase': 'downloading', 'percentage': 0,
             'speed': '0 B/s', 'eta': '--', 'downloaded': 0, 'total_size': 0
         })
-        socketio.start_background_task(download_with_smart_filename, c, socketio)
+        # Standard threading is safer for mixing sync I/O (requests) with async server
+        threading.Thread(target=download_with_smart_filename, args=(c, socketio)).start()
 
     @socketio.on('pause_download')
     def handle_pause(data):
@@ -643,7 +679,7 @@ def register_socket_events(socketio):
             c = active_downloads[data['download_id']]
             c.is_paused = False
             c.active_run_id = str(uuid.uuid4())
-            socketio.start_background_task(download_with_smart_filename, c, socketio)
+            threading.Thread(target=download_with_smart_filename, args=(c, socketio)).start()
 
     @socketio.on('cancel_download')
     def handle_cancel(data):

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Bolt Downloader{% endblock %}</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+
+    <link id="themeStylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='curl.css') }}">
+    
+    <script>
+        (function() {
+            const savedDarkMode = localStorage.getItem('themeMode');
+            const savedThemeName = localStorage.getItem('themeName') || 'default';
+            const themeLink = document.getElementById('themeStylesheet');
+            
+            // 1. Apply Dark Mode immediately
+            if (savedDarkMode === 'dark') {
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+            }
+            
+            // 2. Apply Saved Theme immediately
+            if (savedThemeName !== 'default' && themeLink) {
+                themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${savedThemeName}/bootstrap.min.css`;
+            }
+        })();
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="themeLoader" class="d-none">
+        <div class="loader-content">
+            <div class="spinner-border text-light mb-3" role="status" style="width: 3rem; height: 3rem; border-width: 4px;"></div>
+            <h4 class="fw-bold">Applying Theme...</h4>
+            <p class="small text-white-50">Please wait while styles are updated</p>
+        </div>
+    </div>
+
+    <nav class="navbar fixed-top navbar-expand-lg">
+        <div class="container-fluid">
+            <button class="btn btn-link text-body p-0 me-3 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu">
+                <i class="bi bi-list fs-2"></i>
+            </button>
+
+            <a class="navbar-brand" href="{{ url_for('curl.index') }}">
+                <div class="brand-icon-wrapper"><i class="bi bi-lightning-charge-fill"></i></div>
+                <div class="brand-text">
+                    <div class="brand-main">BOLT</div>
+                    <div class="brand-sub">DOWNLOADER</div>
+                </div>
+            </a>
+            
+            <div class="ms-auto d-flex align-items-center gap-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="darkModeToggle" style="cursor:pointer;">
+                    <label class="form-check-label text-body" for="darkModeToggle"><i id="themeIcon" class="bi bi-moon-stars-fill"></i></label>
+                </div>
+                
+                <button class="btn btn-link text-body p-0" data-bs-toggle="modal" data-bs-target="#settingsModal" title="Settings"><i class="bi bi-gear-fill fs-5"></i></button>
+                <span id="connectionStatus" class="badge rounded-pill bg-secondary">
+                    <span class="spinner-grow spinner-grow-sm me-1" style="width:0.5rem; height:0.5rem;" role="status"></span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            
+            <div class="sidebar col-md-3 col-lg-2 p-0 bg-body-tertiary offcanvas-md offcanvas-start border-end" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+                <div class="offcanvas-header">
+                    <h5 class="offcanvas-title fw-bold" id="sidebarMenuLabel">Menu</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Close"></button>
+                </div>
+                <div class="offcanvas-body d-md-flex flex-column p-0 pt-lg-3 overflow-y-auto">
+                    <ul class="nav flex-column sidebar-nav w-100">
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_view == 'dashboard' or not active_view %}active{% endif %}" 
+                               href="javascript:void(0)" 
+                               onclick="switchView('dashboard', this)">
+                                <i class="bi bi-speedometer2"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_view == 'direct' %}active{% endif %}" 
+                               href="javascript:void(0)" 
+                               onclick="switchView('direct', this)">
+                                <i class="bi bi-link-45deg"></i> Direct Downloader
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_view == 'drive' %}active{% endif %}" 
+                               href="javascript:void(0)" 
+                               onclick="switchView('drive', this)">
+                                <i class="bi bi-google"></i> Drive Link Generator
+                            </a>
+                        </li>
+                    </ul>
+
+                    <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-body-secondary text-uppercase">
+                        <span>Shortcuts</span>
+                    </h6>
+                    <ul class="nav flex-column mb-auto">
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="document.getElementById('savedFilesList') ? document.getElementById('savedFilesList').scrollIntoView({behavior: 'smooth'}) : window.location.href='{{ url_for('curl.index') }}#savedFilesList'">
+                                <i class="bi bi-folder-check"></i> Library
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 pt-3 h-100">
+                
+                <nav aria-label="breadcrumb" class="mb-4 pt-2 border-bottom">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="{{ url_for('curl.index') }}" class="text-decoration-none">Home</a></li>
+                        <li class="breadcrumb-item active" aria-current="page" id="breadcrumbCurrent">
+                            {% if active_view == 'direct' %}Direct URL Downloader
+                            {% elif active_view == 'drive' %}Google Drive Link Generator
+                            {% else %}Dashboard{% endif %}
+                        </li>
+                    </ol>
+                </nav>
+
+                {% block content %}{% endblock %}
+                
+                <footer class="d-block d-md-none mt-5 text-center text-muted small pb-3">
+                    Bolt Downloader Mobile
+                </footer>
+            </main>
+        </div>
+    </div>
+
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-palette-fill me-2 text-primary"></i>Appearance</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <label for="themeSelector" class="form-label fw-bold">Select Theme</label>
+                        <select class="form-select" id="themeSelector">
+                            <option value="default">Default (Bootstrap Standard)</option>
+                            <option value="cerulean">Cerulean (Calm Blue)</option>
+                            <option value="cosmo">Cosmo (Modern)</option>
+                            <option value="cyborg">Cyborg (Dark/Black)</option>
+                            <option value="darkly">Darkly (Flat Dark)</option>
+                            <option value="flatly">Flatly (Flat Light)</option>
+                            <option value="journal">Journal (Paper)</option>
+                            <option value="litera">Litera (Clean)</option>
+                            <option value="lumen">Lumen (Light/Clean)</option>
+                            <option value="lux">Lux (Elegant)</option>
+                            <option value="materia">Materia (Material Design)</option>
+                            <option value="minty">Minty (Fresh Green)</option>
+                            <option value="morph">Morph (Neomorphism)</option>
+                            <option value="pulse">Pulse (Purple Highlights)</option>
+                            <option value="quartz">Quartz (Glassy)</option>
+                            <option value="sandstone">Sandstone (Professional)</option>
+                            <option value="simplex">Simplex (Minimal)</option>
+                            <option value="sketchy">Sketchy (Hand-drawn)</option>
+                            <option value="slate">Slate (Dark Grey)</option>
+                            <option value="solar">Solar (Solarized)</option>
+                            <option value="spacelab">Spacelab (Silver/Blue)</option>
+                            <option value="superhero">Superhero (Dark Blue)</option>
+                            <option value="united">United (Orange/Ubuntu)</option>
+                            <option value="vapor">Vapor (Cyberpunk)</option>
+                            <option value="yeti">Yeti (Flat Blue)</option>
+                            <option value="zephyr">Zephyr (Windy)</option>
+                        </select>
+                        <div class="form-text">Click "Apply" to download and switch the theme.</div>
+                    </div>
+                    <div class="d-grid">
+                        <button class="btn btn-primary" id="applyThemeBtn">Apply & Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4">
+                    <i id="modalIcon" class="bi display-3 mb-3 d-block"></i>
+                    <h5 id="modalTitle" class="modal-title fw-bold mb-2"></h5>
+                    <p class="text-muted mb-4" id="confirmMessage"></p>
+                    <div class="d-flex gap-2 justify-content-center">
+                        <button type="button" class="btn btn-light px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn px-4" id="confirmActionBtn"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog"> 
+            <div class="modal-content border-0 shadow-none">
+                <div class="modal-body position-relative">
+                    
+                    <div class="player-wrapper" id="wrapper">
+                        <div class="spinner" id="bufferingIcon"></div>
+                        
+                        <div class="content-rotator" id="rotator">
+                            
+                            <button onclick="closePlayer()" class="close-player-btn" id="closePlayerBtn" title="Close Player">
+                                <i class="fas fa-times"></i>
+                            </button>
+
+                            <button id="centerPlayBtn" class="center-play-btn">
+                                <i class="fas fa-play"></i>
+                            </button>
+
+                            <div class="video-title" id="videoTitle">Video Title</div>
+                            <video id="video" crossorigin="anonymous" playsinline></video>
+                            
+                            <div class="controls-container" id="controls">
+                                
+                                <div class="btn-row">
+                                    <div class="left-btns">
+                                        <div class="volume-wrapper">
+                                            <button id="muteBtn"><i class="fas fa-volume-up"></i></button>
+                                            <div class="volume-slider-container">
+                                                <input type="range" style="writing-mode: bt-lr; -webkit-appearance: slider-vertical; height: 80px;" id="volSlider" min="0" max="1" step="0.1" value="1">
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="position:relative">
+                                            <button onclick="toggleMenu('audioMenu')"><i class="fas fa-music"></i></button>
+                                            <div class="popup-menu" style="left:0" id="audioMenu">
+                                                <div class="menu-opt" style="color:#666">Loading...</div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="position:relative">
+                                            <button onclick="toggleMenu('subMenu')"><i class="fas fa-closed-captioning"></i></button>
+                                            <div class="popup-menu" style="left:0" id="subMenu">
+                                                <label for="subFileInput" class="menu-opt" style="border-bottom:1px solid rgba(255,255,255,0.1); margin-bottom:4px; font-weight:600;">
+                                                    <i class="fas fa-cloud-upload-alt"></i> Upload Sub
+                                                </label>
+                                                <div id="subListContainer" style="max-height: 200px; overflow-y: auto;">
+                                                    <div class="menu-opt selected" onclick="toggleSub(false, this)">Off</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="right-btns">
+                                        <div style="position:relative">
+                                            <button id="qualityBtn" onclick="toggleMenu('qualityMenu')" title="Quality"><i class="fas fa-cog"></i></button>
+                                            <div class="popup-menu" style="right:0" id="qualityMenu">
+                                                <div class="menu-opt selected" onclick="setQuality('original', this)">Original</div>
+                                            </div>
+                                        </div>
+                                        <div style="position:relative">
+                                            <button id="speedBtn" onclick="toggleMenu('speedMenu')" title="Speed"><i class="fas fa-tachometer-alt"></i></button>
+                                            <div class="popup-menu" style="right:0" id="speedMenu">
+                                                <div class="menu-opt" onclick="setSpeed(1.0, this)">Normal</div>
+                                                <div class="menu-opt" onclick="setSpeed(1.25, this)">1.25x</div>
+                                                <div class="menu-opt" onclick="setSpeed(1.5, this)">1.5x</div>
+                                                <div class="menu-opt" onclick="setSpeed(2.0, this)">2.0x</div>
+                                            </div>
+                                        </div>
+                                        <button onclick="toggleRotation()" title="Rotate" id="rotateBtn"><i class="fas fa-mobile-alt"></i></button>
+                                        <button onclick="togglePiP()"><i class="fas fa-images"></i></button>
+                                        <button onclick="cycleZoom()" title="Zoom" id="zoomBtn"><i class="fas fa-expand" id="zoomIcon"></i></button>
+                                        <button id="fsBtn"><i class="fas fa-expand-arrows-alt"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <div class="duration-layer">
+                                    <span id="currTime">00:00</span>
+                                    <div class="progress-bg" id="progressBg">
+                                        <div class="progress-fill" id="progressFill"></div>
+                                    </div>
+                                    <span id="durTime">00:00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <input type="file" id="subFileInput" accept=".vtt,.srt,.ass,.ssa,.sub" style="display:none;">
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex"><div class="toast-body fw-medium" id="toastBody"></div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='curl.js') }}"></script>
+</body>
+</html>

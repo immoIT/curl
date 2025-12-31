@@ -1,34 +1,39 @@
 // - Complete Client Logic
 
 // =========================================================
-// 1. DASHBOARD & SOCKET LOGIC (UNCHANGED)
+// 1. THEME CONFIGURATION (Initialization is now in base.html)
+// =========================================================
+
+const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
+const themeLink = document.getElementById('themeStylesheet');
+
+// =========================================================
+// 2. DASHBOARD & SOCKET LOGIC
 // =========================================================
 
 const toggle = document.getElementById('darkModeToggle');
 const themeIcon = document.getElementById('themeIcon');
-const themeSelect = document.getElementById('themeSelect');
-const themeLink = document.getElementById('themeStylesheet');
-const DEFAULT_THEME_URL = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css";
+const themeSelect = document.getElementById('themeSelector');
+const applyThemeBtn = document.getElementById('applyThemeBtn');
+const themeLoader = document.getElementById('themeLoader');
 
 function updateThemeIcon(isDark) {
     if(themeIcon) themeIcon.className = isDark ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 }
 
-const savedDarkMode = localStorage.getItem('themeMode'); 
-const savedThemeName = localStorage.getItem('themeName') || 'default';
-
-if (savedDarkMode === 'dark') {
-    document.documentElement.setAttribute('data-bs-theme', 'dark');
+// Sync UI with current state
+const currentDarkMode = localStorage.getItem('themeMode'); 
+if (currentDarkMode === 'dark') {
     if(toggle) toggle.checked = true;
     updateThemeIcon(true);
 } else {
     updateThemeIcon(false);
 }
 
-if(savedThemeName && savedThemeName !== 'default') {
-    if(themeSelect) themeSelect.value = savedThemeName;
-}
+const currentThemeName = localStorage.getItem('themeName') || 'default';
+if(themeSelect) themeSelect.value = currentThemeName;
 
+// Dark Mode Toggle Listener
 if(toggle) {
     toggle.addEventListener('change', () => {
         const isDark = toggle.checked;
@@ -38,16 +43,40 @@ if(toggle) {
     });
 }
 
-if(themeSelect) {
-    themeSelect.addEventListener('change', (e) => {
-        const selectedTheme = e.target.value;
-        if (selectedTheme === 'default') {
-            themeLink.href = DEFAULT_THEME_URL;
-        } else {
-            themeLink.href = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${selectedTheme}/bootstrap.min.css`;
+// Theme Apply Button Listener
+if(applyThemeBtn && themeSelect) {
+    applyThemeBtn.addEventListener('click', () => {
+        const themeName = themeSelect.value;
+        const modalEl = document.getElementById('settingsModal');
+        if(modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+        
+        if(themeName === localStorage.getItem('themeName')) return;
+
+        if(themeLoader) themeLoader.classList.remove('d-none');
+        
+        let newUrl = DEFAULT_THEME_URL;
+        if (themeName !== 'default') {
+            newUrl = `https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/${themeName}/bootstrap.min.css`;
         }
-        localStorage.setItem('themeName', selectedTheme);
-        showToast(`Theme changed to ${selectedTheme.charAt(0).toUpperCase() + selectedTheme.slice(1)}`, 'primary');
+
+        const safetyTimer = setTimeout(() => { 
+            if(themeLoader) themeLoader.classList.add('d-none'); 
+        }, 5000);
+
+        themeLink.href = newUrl;
+        localStorage.setItem('themeName', themeName);
+
+        themeLink.onload = () => {
+            clearTimeout(safetyTimer);
+            setTimeout(() => { 
+                if(themeLoader) themeLoader.classList.add('d-none'); 
+            }, 600);
+        };
+        themeLink.onerror = () => {
+            clearTimeout(safetyTimer);
+            if(themeLoader) themeLoader.classList.add('d-none');
+            alert("Failed to download theme.");
+        };
     });
 }
 
@@ -61,7 +90,7 @@ socket.on('connect', () => {
     status.innerHTML = '<i class="bi bi-wifi"></i> Connected';
     
     document.getElementById('activeDownloads').innerHTML = `
-        <div id="emptyState" class="text-center py-5 text-muted opacity-50">
+        <div id="emptyState" class="text-center py-5 text-muted opacity-50 border rounded-3 border-dashed bg-body-tertiary">
             <i class="bi bi-cloud-download display-1"></i>
             <p class="mt-3">No active downloads running</p>
         </div>`;
@@ -101,11 +130,42 @@ document.getElementById('downloadForm').addEventListener('submit', (e) => {
     document.getElementById('filenamePreviewWrapper').style.display = 'none';
 });
 
+// Helper: Create Download Item HTML
+function createDownloadItem(data) {
+    const div = document.createElement('div');
+    div.id = `download-${data.download_id}`;
+    div.className = 'download-item';
+    div.setAttribute('data-phase', 'downloading'); 
+    div.innerHTML = `
+        <div class="download-header-row">
+            <div class="download-info-col">
+                <h6 class="filename fw-bold mb-0 text-truncate" style="max-width: 100%;">${data.filename}</h6>
+                <small class="text-muted status-text">Downloading...</small>
+            </div>
+            <div class="download-btn-col">
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-warning btn-pause" onclick="pauseDownload('${data.download_id}')" title="Pause"><i class="bi bi-pause-fill"></i></button>
+                    <button class="btn btn-sm btn-outline-success btn-resume" onclick="resumeDownload('${data.download_id}')" title="Resume" style="display:none;"><i class="bi bi-play-fill"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="cancelDownload('${data.download_id}')" title="Cancel"><i class="bi bi-x-lg"></i></button>
+                </div>
+            </div>
+        </div>
+        <div class="progress"><div class="progress-bar" role="progressbar" style="width: 0%"></div></div>
+        <div class="download-meta d-flex justify-content-between">
+            <span><i class="bi bi-hdd me-1 meta-icon"></i><span class="downloaded">0/0</span></span>
+            <span class="d-none d-sm-inline"><i class="bi bi-speedometer2 me-1"></i><span class="speed">0 B/s</span></span>
+            <span><i class="bi bi-clock me-1"></i><span class="eta">--</span></span>
+            <span class="fw-bold percent text-primary">0%</span>
+        </div>`;
+    return div;
+}
+
 function updateDownloadUI(data) {
     if(cancelledIds.has(data.download_id)) return;
     const container = document.getElementById('activeDownloads');
     let el = document.getElementById(`download-${data.download_id}`);
-    document.getElementById('emptyState').style.display = 'none';
+    const emptyState = document.getElementById('emptyState');
+    if(emptyState) emptyState.style.display = 'none';
     
     if (!el) {
         el = createDownloadItem(data);
@@ -166,7 +226,10 @@ function handleComplete(data) {
                 el.remove(); 
                 activeDownloadCount--;
                 document.getElementById('activeCount').innerText = activeDownloadCount;
-                if(activeDownloadCount === 0) document.getElementById('emptyState').style.display = 'block';
+                if(activeDownloadCount === 0) {
+                     const es = document.getElementById('emptyState');
+                     if(es) es.style.display = 'block';
+                }
             }, 500);
         }, 3000);
     }
@@ -261,7 +324,10 @@ function cancelDownload(id) {
             activeDownloadCount--;
             if(activeDownloadCount < 0) activeDownloadCount = 0;
             document.getElementById('activeCount').innerText = activeDownloadCount;
-            if(activeDownloadCount === 0) document.getElementById('emptyState').style.display = 'block';
+            if(activeDownloadCount === 0) {
+                const es = document.getElementById('emptyState');
+                if(es) es.style.display = 'block';
+            }
         }
     });
 }
@@ -420,43 +486,134 @@ function copyGDriveLink() {
     }
 }
 
+// =========================================================
+// UPDATED LIBRARY LOGIC (New Icons + Conditional Play)
+// =========================================================
+
+/**
+ * Maps file extensions to specific Bootstrap icons and colors.
+ */
+function getFileIcon(filename) {
+    if (!filename) return 'bi-file-earmark-fill text-secondary';
+    
+    const ext = filename.split('.').pop().toLowerCase();
+    
+    const iconMap = {
+        // Archives (Zip, Rar, etc.) - Yellow/Warning Color
+        'zip': 'bi-file-earmark-zip-fill text-warning',
+        'rar': 'bi-file-earmark-zip-fill text-warning',
+        '7z': 'bi-file-earmark-zip-fill text-warning',
+        'tar': 'bi-file-earmark-zip-fill text-warning',
+        'gz':  'bi-file-earmark-zip-fill text-warning',
+        'bz2': 'bi-file-earmark-zip-fill text-warning',
+
+        // Video formats - Red/Danger Color
+        'mp4': 'bi-file-earmark-play-fill text-danger',
+        'mkv': 'bi-file-earmark-play-fill text-danger',
+        'webm':'bi-file-earmark-play-fill text-danger',
+        'mov': 'bi-file-earmark-play-fill text-danger',
+        'avi': 'bi-file-earmark-play-fill text-danger',
+        'm4v': 'bi-file-earmark-play-fill text-danger',
+
+        // Audio formats - Cyan/Info Color
+        'mp3': 'bi-file-earmark-music-fill text-info',
+        'wav': 'bi-file-earmark-music-fill text-info',
+        'm4a': 'bi-file-earmark-music-fill text-info',
+        'flac':'bi-file-earmark-music-fill text-info',
+        'aac': 'bi-file-earmark-music-fill text-info',
+
+        // Documents - Blue/Primary Color
+        'doc': 'bi-file-earmark-word-fill text-primary',
+        'docx':'bi-file-earmark-word-fill text-primary',
+        'pdf': 'bi-file-earmark-pdf-fill text-danger',
+        'xls': 'bi-file-earmark-excel-fill text-success',
+        'xlsx':'bi-file-earmark-excel-fill text-success',
+        'ppt': 'bi-file-earmark-ppt-fill text-warning',
+        'pptx':'bi-file-earmark-ppt-fill text-warning',
+        'txt': 'bi-file-earmark-text-fill text-secondary',
+
+        // Images - Green/Success Color
+        'jpg': 'bi-file-earmark-image-fill text-success',
+        'jpeg':'bi-file-earmark-image-fill text-success',
+        'png': 'bi-file-earmark-image-fill text-success',
+        'gif': 'bi-file-earmark-image-fill text-success',
+        'webp':'bi-file-earmark-image-fill text-success',
+        
+        // Code
+        'py': 'bi-file-earmark-code-fill text-primary',
+        'js': 'bi-file-earmark-code-fill text-warning',
+        'html':'bi-file-earmark-code-fill text-danger',
+        'css': 'bi-file-earmark-code-fill text-info'
+    };
+
+    // Return the mapped icon or a default generic file icon
+    return iconMap[ext] || 'bi-file-earmark-fill text-secondary';
+}
+
+/**
+ * Checks if a file is a video format supported by the player.
+ */
+function isVideo(filename) {
+    if (!filename) return false;
+    const ext = filename.split('.').pop().toLowerCase();
+    // Only these extensions will get a Play button
+    return ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v'].includes(ext);
+}
+
 function loadSavedFiles() {
     const refreshIcon = document.getElementById('refreshIcon');
-    refreshIcon.classList.add('rotate-anim');
+    if (refreshIcon) refreshIcon.classList.add('rotate-anim');
 
     fetch('/list_files')
     .then(r => r.json())
     .then(data => {
         const c = document.getElementById('savedFilesList');
+        // Safety check if the element exists in current view
+        if(!c) return;
+
         if(data.files.length === 0) {
              c.innerHTML = '<div class="text-center text-muted p-3">No active downloads finished yet.</div>';
         } else {
             c.innerHTML = data.files.map(f => {
-                const playBtn = `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')"><i class="bi bi-play-circle-fill fs-5"></i></button>`;
-                const downloadBtn = f.gdrive_id ? `<a href="/download_drive/${f.gdrive_id}" class="btn btn-sm btn-outline-success border-0 me-1"><i class="bi bi-cloud-download fs-5"></i></a>` : '';
+                const iconClass = getFileIcon(f.name);
+                const showPlay = isVideo(f.name);
+                
+                // LOGIC: If it is NOT a video, playBtn is an empty string.
+                // This ensures the button completely disappears for Zip/PDF/MP3.
+                const playBtn = showPlay ? 
+                    `<button class="btn btn-sm btn-outline-primary border-0 me-1" onclick="openPlayer('${f.name}', '${f.gdrive_id || ''}')" title="Play Video"><i class="bi bi-play-circle-fill fs-5"></i></button>` 
+                    : '';
+
+                const downloadBtn = f.gdrive_id ? 
+                    `<a href="/download_drive/${f.gdrive_id}" class="btn btn-sm btn-outline-success border-0 me-1" title="Download"><i class="bi bi-cloud-download fs-5"></i></a>` 
+                    : '';
+
                 return `
                 <div class="card saved-file-card mb-2" id="file-${f.name.replace(/[^a-zA-Z0-9]/g, '')}">
                     <div class="card-body p-2 d-flex align-items-center">
-                        <span class="fs-4 me-3"><i class="bi bi-file-earmark-play-fill text-danger"></i></span>
+                        <span class="fs-4 me-3"><i class="bi ${iconClass}"></i></span>
+                        
                         <div class="overflow-hidden me-auto">
                             <div class="fw-bold text-truncate" title="${f.name}">${f.name}</div>
                             <small class="text-muted">${formatBytes(f.size)} • ${f.date}</small>
                         </div>
+                        
                         <div class="d-flex align-items-center">
                             ${downloadBtn}
-                            ${playBtn}
-                            <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')"><i class="bi bi-trash"></i></button>
+                            ${playBtn} <button class="btn btn-sm btn-outline-danger border-0" onclick="deleteFile('${f.name}')" title="Delete"><i class="bi bi-trash"></i></button>
                         </div>
                     </div>
-                </div>`
+                </div>`;
             }).join('');
         }
-        setTimeout(() => { refreshIcon.classList.remove('rotate-anim'); }, 500);
+        setTimeout(() => { 
+            if(refreshIcon) refreshIcon.classList.remove('rotate-anim'); 
+        }, 500);
     });
 }
 
 // =========================================================
-// 2. PLAYER CONTROLLER LOGIC (UPDATED)
+// 3. PLAYER CONTROLLER LOGIC
 // =========================================================
 
 const video = document.getElementById('video');
@@ -464,8 +621,7 @@ const wrapper = document.getElementById('wrapper');
 const rotator = document.getElementById('rotator');
 const controls = document.getElementById('controls');
 const videoTitle = document.getElementById('videoTitle');
-// REMOVED old playBtn to prevent errors
-const centerPlayBtn = document.getElementById('centerPlayBtn'); // NEW
+const centerPlayBtn = document.getElementById('centerPlayBtn');
 
 const progressBg = document.getElementById('progressBg');
 const progressFill = document.getElementById('progressFill');
@@ -661,7 +817,7 @@ function setRotationState(active) {
         }
         if(content) {
              content.style.removeProperty('border');
-             content.style.removeProperty('background'); // Reverts to CSS (transparent black)
+             content.style.removeProperty('background'); 
         }
 
         // B. RESTORE WRAPPER
@@ -672,8 +828,8 @@ function setRotationState(active) {
         wrapper.style.height = '';
         wrapper.style.zIndex = '';
         wrapper.style.maxWidth = '';
-        wrapper.style.maxHeight = ''; // CSS handles this now (max-height: 100%)
-        wrapper.style.borderRadius = ''; // CSS handles this
+        wrapper.style.maxHeight = ''; 
+        wrapper.style.borderRadius = ''; 
 
         rotator.style.transform = "rotate(0deg)";
         rotator.style.width = "100%"; 
@@ -850,7 +1006,7 @@ video.addEventListener('loadedmetadata', () => {
     loadExistingSubs(); 
 });
 
-// NEW: Show/Hide Logic including Center Button
+// Show/Hide Logic including Center Button
 function showControls() {
     controls.classList.remove('ui-hidden');
     videoTitle.classList.remove('ui-hidden');
@@ -881,7 +1037,7 @@ wrapper.addEventListener('click', (e) => {
     }
 });
 
-// NEW: Unified Play/Pause Function
+// Unified Play/Pause Function
 function togglePlayPause() {
     if (video.paused) { 
         video.play(); 
@@ -947,4 +1103,87 @@ muteBtn.addEventListener('click', () => {
 
 document.getElementById('playerModal').addEventListener('hidden.bs.modal', function () {
     closePlayer();
+});
+
+
+// =========================================================
+// 4. SIDEBAR NAVIGATION LOGIC (UPDATED WITH URL STATE)
+// =========================================================
+
+function switchView(viewName, navElement) {
+    const directSection = document.getElementById('section-direct');
+    const driveSection = document.getElementById('section-drive');
+    const breadcrumb = document.getElementById('breadcrumbCurrent');
+    
+    // 1. Update Sidebar Active State
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(el => {
+        el.classList.remove('active');
+    });
+    // If navElement isn't passed (e.g., on load/popstate), try to find the matching link
+    if (!navElement) {
+        if(viewName === 'dashboard') navElement = document.querySelector('a[onclick*="dashboard"]');
+        if(viewName === 'direct') navElement = document.querySelector('a[onclick*="direct"]');
+        if(viewName === 'drive') navElement = document.querySelector('a[onclick*="drive"]');
+    }
+    if(navElement) navElement.classList.add('active');
+
+    // 2. URL STATE MANAGEMENT (The Fix for Refresh)
+    // We update the browser URL without reloading so the server knows where we are on refresh
+    let newPath = "/";
+    if (viewName === 'direct') newPath = "/direct";
+    else if (viewName === 'drive') newPath = "/drive";
+    
+    // Only push state if the URL is actually changing
+    if (window.location.pathname !== newPath) {
+        window.history.pushState({ view: viewName }, "", newPath);
+    }
+
+    // 3. Toggle Forms Logic
+    if (viewName === 'dashboard') {
+        directSection.classList.remove('d-none');
+        directSection.classList.replace('col-12', 'col-lg-6');
+        
+        driveSection.classList.remove('d-none');
+        driveSection.classList.replace('col-12', 'col-lg-6');
+        driveSection.classList.add('mt-3', 'mt-lg-0');
+        
+        if(breadcrumb) breadcrumb.innerText = 'Dashboard';
+    } 
+    else if (viewName === 'direct') {
+        driveSection.classList.add('d-none');
+        
+        directSection.classList.remove('d-none');
+        directSection.classList.replace('col-lg-6', 'col-12');
+        
+        if(breadcrumb) breadcrumb.innerText = 'Direct URL Downloader';
+    } 
+    else if (viewName === 'drive') {
+        directSection.classList.add('d-none');
+        
+        driveSection.classList.remove('d-none');
+        driveSection.classList.replace('col-lg-6', 'col-12');
+        driveSection.classList.remove('mt-3', 'mt-lg-0');
+        
+        if(breadcrumb) breadcrumb.innerText = 'Google Drive Link Generator';
+    }
+
+    // 4. Mobile sidebar auto-close
+    const sidebar = document.getElementById('sidebarMenu');
+    if (sidebar && window.innerWidth < 768) {
+        const bsOffcanvas = bootstrap.Offcanvas.getInstance(sidebar);
+        if (bsOffcanvas) bsOffcanvas.hide();
+    }
+}
+
+// Handle Browser "Back" Button
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.view) {
+        switchView(event.state.view, null); 
+    } else {
+        // Fallback: detect from URL
+        const path = window.location.pathname;
+        if(path.includes('direct')) switchView('direct', null);
+        else if(path.includes('drive')) switchView('drive', null);
+        else switchView('dashboard', null);
+    }
 });
