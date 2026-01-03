@@ -35,11 +35,18 @@ from googleapiclient.http import MediaFileUpload
 curl_bp = Blueprint('curl', __name__)
 
 # --- CONFIG & GLOBALS ---
+# FIX: Use absolute path for downloads to avoid confusion in container environments (Render)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Check if running inside 'py' folder or root
+if os.path.basename(BASE_DIR) == 'py':
+    BASE_DIR = os.path.dirname(BASE_DIR) # Go up one level to root
+
+DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+TOKEN_PATH = os.path.join(BASE_DIR, 'token.json')
+
 active_downloads = {}
 download_history = [] 
 SCOPES = ['https://www.googleapis.com/auth/drive'] 
-TOKEN_PATH = 'token.json'
-DOWNLOAD_DIR = "downloads"
 
 def safe_filename(name):
     """Sanitizes filename to be safe for filesystems."""
@@ -51,13 +58,16 @@ def safe_filename(name):
     )
 
 def ascii_filename(name):
-    """Ensures filename is strictly ASCII for HTTP headers."""
+    """Ensures filename is strictly ASCII for HTTP headers to prevent unicode errors."""
     if not name: return "download"
-    return (
-        name.encode("ascii", "ignore")
-            .decode("ascii")
-            .replace(" ", "_")
-    ) 
+    try:
+        # Normalize unicode characters to closest ASCII equivalent
+        clean = name.encode("ascii", "ignore").decode("ascii")
+        # Remove characters that are unsafe for headers
+        clean = re.sub(r'[^\w\s\-\.]', '', clean)
+        return clean.strip() or "download"
+    except:
+        return "download"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
@@ -87,7 +97,7 @@ def get_ydl_opts(is_download=False, res_id=None):
         opts.update({
             "format": f"{res_id}+bestaudio/best",
             "merge_output_format": "mp4",
-            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s - %(format_note)s.%(ext)s"),
+            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"), # Simplified template
         })
     return opts
 
@@ -340,7 +350,8 @@ def youtube_download_task():
     def task():
         filepath = None
         try:
-            # ---- DOWNLOAD (NO SOCKET EMIT) ----
+            # ---- DOWNLOAD (NO SOCKET EMIT, JUST BACKGROUND) ----
+            # We don't want to block the user or confuse them with "Downloading 0%" while YT processes
             ydl_opts = get_ydl_opts(is_download=True, res_id=VIDEO_FORMATS[res])
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -539,6 +550,8 @@ def stream_drive_content(file_id, as_attachment=False):
 
     meta = get_file_metadata(file_id)
     raw_name = meta.get('name', 'downloaded_file')
+    if not raw_name: raw_name = "downloaded_file"
+    
     filename = raw_name.lower()
     
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
@@ -562,8 +575,9 @@ def stream_drive_content(file_id, as_attachment=False):
     
     response_headers = [(n, v) for (n, v) in req.headers.items() if n.lower() not in excluded_headers]
 
-    # FIX: Ensure ASCII filename for headers to prevent UnicodeEncodeError in Termux
-    ascii_name = ascii_filename(raw_name).replace('"', '')
+    # FIX: Robust ASCII conversion for Content-Disposition header
+    # This prevents crashes when streaming files with emojis/unicode in their names
+    ascii_name = ascii_filename(raw_name)
     disposition = 'attachment' if as_attachment else 'inline'
 
     response_headers.append(
@@ -575,6 +589,7 @@ def stream_drive_content(file_id, as_attachment=False):
 
 @curl_bp.route('/stream/<filename>')
 def stream_file(filename):
+    # FIX: Use absolute path join
     file_path = os.path.join(DOWNLOAD_DIR, filename)
     if not os.path.exists(file_path): return "File not found", 404
 
@@ -797,36 +812,15 @@ def background_system_stats(socketio):
 def register_socket_events(socketio):
     global socketio_instance
     socketio_instance = socketio
-
-    # Start background stats thread
-    threading.Thread(
-        target=background_system_stats,
-        args=(socketio,),
-        daemon=True
-    ).start()
+    threading.Thread(target=background_system_stats, args=(socketio,), daemon=True).start()
 
     @socketio.on('connect')
     def handle_connect():
-        print("Socket.IO client connected")
-
-        # Re-sync active downloads
-        for did, c in active_downloads.items():
-            if c.is_cancelled:
-                continue
-
-            if c.last_status:
-                socketio.emit(
-                    'download_progress',
-                    c.last_status,
-                    to=request.sid   # IMPORTANT
-                )
-
-            elif c.is_paused:
-                socketio.emit(
-                    'download_paused',
-                    {'download_id': did},
-                    to=request.sid
-                )
+        if active_downloads:
+            for did, c in active_downloads.items():
+                if not c.is_cancelled:
+                    if c.last_status: emit('download_progress', c.last_status)
+                    elif c.is_paused: emit('download_paused', {'download_id': did})
 
     @socketio.on('start_download')
     def handle_start(data):

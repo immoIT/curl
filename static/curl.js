@@ -53,8 +53,8 @@ if(applyThemeBtn && themeSelect) {
         }
 
         const safetyTimer = setTimeout(() => { if(themeLoader) themeLoader.classList.add('d-none'); }, 5000);
-        themeLink.href = newUrl;
-        localStorage.setItem('themeName', themeName);
+        
+        // FIX: Set onload before href to ensure event capture
         themeLink.onload = () => {
             clearTimeout(safetyTimer);
             setTimeout(() => { if(themeLoader) themeLoader.classList.add('d-none'); }, 600);
@@ -64,18 +64,28 @@ if(applyThemeBtn && themeSelect) {
             if(themeLoader) themeLoader.classList.add('d-none');
             alert("Failed to download theme.");
         };
+        
+        themeLink.href = newUrl;
+        localStorage.setItem('themeName', themeName);
     });
 }
 
+// FIX: Force WebSocket transport for Render compatibility
+// Render's load balancer breaks default polling (sticky session issue).
 const socket = io({
     transports: ['websocket'],
-    upgrade: false
+    upgrade: false,
+    reconnection: true,
+    reconnectionAttempts: 10,
+    timeout: 20000
 });
+
 let activeDownloadCount = 0;
 const cancelledIds = new Set();
 const ytAbortControllers = new Map(); // Store AbortControllers for YouTube downloads
 
 socket.on('connect', () => {
+    console.log("Socket Connected:", socket.id);
     const status = document.getElementById('connectionStatus');
     if(status) {
         status.className = 'badge bg-success';
@@ -94,7 +104,17 @@ socket.on('connect', () => {
     loadSavedFiles();
 });
 
-socket.on('disconnect', () => {
+socket.on('connect_error', (err) => {
+    console.warn("Socket Connection Error:", err);
+    const status = document.getElementById('connectionStatus');
+    if(status) {
+        status.className = 'badge bg-warning text-dark';
+        status.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Retrying...';
+    }
+});
+
+socket.on('disconnect', (reason) => {
+    console.log("Socket Disconnected:", reason);
     const status = document.getElementById('connectionStatus');
     if(status) {
         status.className = 'badge bg-danger';
@@ -131,7 +151,7 @@ if(document.getElementById('downloadForm')) {
 }
 
 // =========================================================
-// UPDATED YOUTUBE LOGIC (Client-Side Streaming)
+// 3. YOUTUBE LOGIC (Client-Side Streaming)
 // =========================================================
 const ytForm = document.getElementById('ytSearchForm');
 if(ytForm) {
@@ -177,7 +197,6 @@ function fetchYoutubeInfo() {
                     btn.innerHTML = `<span><i class="bi bi-film me-2"></i>${f.res}</span>
                                      <span class="badge bg-primary rounded-pill">${f.size}</span>`;
                     
-                    // FIXED: Logic to handle visibility on click
                     btn.onclick = () => {
                         hideActiveDownloads(); // Ensure it's hidden during the server-side download phase
                         showYtLine();          // Start the thin line animation
@@ -234,7 +253,7 @@ function formatTimeSeconds(seconds) {
 }
 
 // =========================================================
-// UI HELPERS
+// 4. UI HELPERS
 // =========================================================
 
 function createDownloadItem(data) {
@@ -267,7 +286,7 @@ function createDownloadItem(data) {
 }
 
 function updateDownloadUI(data) {
-    // FIXED: Show Active Downloads only when YT upload starts
+    // Show Active Downloads only when YT upload starts
     if (data.download_id.startsWith('yt_') && data.phase === 'uploading') {
         hideYtLine();            
         showActiveDownloads();   
@@ -285,7 +304,7 @@ function updateDownloadUI(data) {
         activeDownloadCount++;
         document.getElementById('activeCount').innerText = activeDownloadCount;
         
-        // Hide pause/resume for YT downloads as we don't support pause on streams yet
+        // Hide pause/resume for YT downloads
         if (data.download_id.startsWith('yt_')) {
             el.querySelector('.btn-pause').style.display = 'none';
         }
@@ -366,7 +385,6 @@ function handleComplete(data) {
                     if (es) es.style.display = 'block';
                 }
 
-                // FIXED: Hide Active Downloads section again if it was a YouTube task
                 if (data.download_id.startsWith('yt_')) {
                     hideActiveDownloads();
                 }
@@ -470,7 +488,7 @@ function cancelDownload(id) {
         cancelledIds.add(id);
         
         if (isYoutube) {
-            // Client-side abort
+            // Client-side abort if needed
             if(ytAbortControllers.has(id)) {
                 ytAbortControllers.get(id).abort();
                 ytAbortControllers.delete(id);
@@ -534,10 +552,12 @@ function formatBytes(bytes, decimals = 2) {
 
 function showToast(msg, type='primary') {
     const toastEl = document.getElementById('liveToast');
-    const toast = new bootstrap.Toast(toastEl);
-    document.getElementById('toastBody').innerText = msg;
-    toastEl.className = `toast align-items-center text-white bg-${type} border-0`;
-    toast.show();
+    if (toastEl) {
+        const toast = new bootstrap.Toast(toastEl);
+        document.getElementById('toastBody').innerText = msg;
+        toastEl.className = `toast align-items-center text-white bg-${type} border-0`;
+        toast.show();
+    }
 }
 
 async function pasteText(id) {
@@ -648,7 +668,7 @@ function copyGDriveLink() {
 }
 
 // =========================================================
-// UPDATED LIBRARY LOGIC
+// 5. LIBRARY LOGIC
 // =========================================================
 
 function getFileIcon(filename) {
@@ -748,7 +768,7 @@ function loadSavedFiles() {
 }
 
 // =========================================================
-// 3. PLAYER CONTROLLER LOGIC
+// 6. PLAYER CONTROLLER LOGIC
 // =========================================================
 
 const video = document.getElementById('video');
@@ -776,9 +796,10 @@ let subOffset = 0;
 
 const zoomModes = ['contain', 'fill', 'cover', 'smart-crop']; 
 const zoomIcons = ['fa-expand', 'fa-arrows-alt-h', 'fa-compress-arrows-alt', 'fa-crop'];
+const fsBtn = document.getElementById('fsBtn');
 
 function openPlayer(filename, driveId = null) {
-    videoTitle.innerText = filename;
+    if(videoTitle) videoTitle.innerText = filename;
     let streamUrl = driveId ? `/stream_drive/${driveId}` : `/stream/${encodeURIComponent(filename)}`;
     video.src = streamUrl;
     video.playbackRate = 1.0;
@@ -1042,7 +1063,8 @@ document.getElementById('subFileInput').addEventListener('change', async functio
             const originalText = label.innerHTML;
             label.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
             const res = await fetch('/upload_sub', { method: 'POST', body: formData });
-            const text = await res.text(); console.log(text);
+            const data = await res.json();
+            
             if(data.success) {
                 video.querySelectorAll('track').forEach(t => t.remove());
                 buildSubMenu([{name: data.name, id: data.file_id}]);
@@ -1177,7 +1199,6 @@ function fmt(s) {
     return (m<10?'0'+m:m) + ':' + (sc<10?'0'+sc:sc); 
 }
 
-const fsBtn = document.getElementById('fsBtn');
 if(fsBtn) {
     fsBtn.addEventListener('click', (e) => { 
         e.stopPropagation();
@@ -1213,7 +1234,7 @@ document.getElementById('playerModal').addEventListener('hidden.bs.modal', funct
 
 
 // =========================================================
-// 4. SIDEBAR NAVIGATION LOGIC
+// 7. SIDEBAR NAVIGATION LOGIC
 // =========================================================
 
 function switchView(viewName, navElement) {
@@ -1240,11 +1261,15 @@ function switchView(viewName, navElement) {
     // 3. Apply Specific Layout Logic
     if (viewName === 'dashboard') {
         // Show both Direct and Drive side-by-side
-        sections.direct.classList.remove('d-none');
-        sections.direct.classList.add('col-lg-6');
+        if(sections.direct) {
+            sections.direct.classList.remove('d-none');
+            sections.direct.classList.add('col-lg-6');
+        }
         
-        sections.drive.classList.remove('d-none');
-        sections.drive.classList.add('col-lg-6', 'mt-3', 'mt-lg-0');
+        if(sections.drive) {
+            sections.drive.classList.remove('d-none');
+            sections.drive.classList.add('col-lg-6', 'mt-3', 'mt-lg-0');
+        }
         
         // Always show Active Downloads on Dashboard if there are downloads
         if (activeDownloadCount > 0) showActiveDownloads();
@@ -1257,8 +1282,7 @@ function switchView(viewName, navElement) {
             target.classList.remove('d-none');
             target.classList.add('col-12');
             
-            // FIXED: Hide active downloads when entering a specific tool view
-            // It will reappear automatically via updateDownloadUI when a download/upload starts
+            // Hide active downloads when entering a specific tool view
             hideActiveDownloads();
 
             if (breadcrumb) {
@@ -1275,8 +1299,6 @@ function switchView(viewName, navElement) {
         if (bsOffcanvas) bsOffcanvas.hide();
     }
 }
-
-
 
 window.addEventListener('popstate', (event) => {
     if (event.state && event.state.view) {
@@ -1297,24 +1319,3 @@ function hideActiveDownloads() {
 function showActiveDownloads() {
     document.getElementById('activeDownloadsSection')?.classList.remove('d-none');
 }
-nnerText = 'YouTube Downloader';
-    }
-
-    const sidebar = document.getElementById('sidebarMenu');
-    if (sidebar && window.innerWidth < 768) {
-        const bsOffcanvas = bootstrap.Offcanvas.getInstance(sidebar);
-        if (bsOffcanvas) bsOffcanvas.hide();
-    }
-}
-
-window.addEventListener('popstate', (event) => {
-    if (event.state && event.state.view) {
-        switchView(event.state.view, null); 
-    } else {
-        const path = window.location.pathname;
-        if(path.includes('direct')) switchView('direct', null);
-        else if(path.includes('drive')) switchView('drive', null);
-        else if(path.includes('youtube')) switchView('youtube', null);
-        else switchView('dashboard', null);
-    }
-});
