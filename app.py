@@ -8,7 +8,7 @@ from flask import Flask
 from flask_socketio import SocketIO
 
 # Import from curl.py (Ensure curl.py is in the same directory)
-from curl import curl_bp, register_socket_events 
+from py.curl import curl_bp, register_socket_events 
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default-dev-key-change-this')
