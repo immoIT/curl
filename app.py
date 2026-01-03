@@ -1,7 +1,7 @@
 import eventlet
 # Monkey patch must happen before any other imports to be effective
 # We keep socket/dns False to avoid the YouTube DNS resolution error
-eventlet.monkey_patch(socket=False, dns=False)
+eventlet.monkey_patch(all=True, socket=False, dns=False)
 
 import os
 import sys
