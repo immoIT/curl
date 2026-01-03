@@ -67,7 +67,7 @@ if(applyThemeBtn && themeSelect) {
     });
 }
 
-const socket = io();
+const socket = io({   transports: ["websocket", "polling"],   upgrade: true,   reconnection: true });
 let activeDownloadCount = 0;
 const cancelledIds = new Set();
 const ytAbortControllers = new Map(); // Store AbortControllers for YouTube downloads

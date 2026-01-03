@@ -797,15 +797,36 @@ def background_system_stats(socketio):
 def register_socket_events(socketio):
     global socketio_instance
     socketio_instance = socketio
-    threading.Thread(target=background_system_stats, args=(socketio,), daemon=True).start()
+
+    # Start background stats thread
+    threading.Thread(
+        target=background_system_stats,
+        args=(socketio,),
+        daemon=True
+    ).start()
 
     @socketio.on('connect')
     def handle_connect():
-        if active_downloads:
-            for did, c in active_downloads.items():
-                if not c.is_cancelled:
-                    if c.last_status: emit('download_progress', c.last_status)
-                    elif c.is_paused: emit('download_paused', {'download_id': did})
+        print("Socket.IO client connected")
+
+        # Re-sync active downloads
+        for did, c in active_downloads.items():
+            if c.is_cancelled:
+                continue
+
+            if c.last_status:
+                socketio.emit(
+                    'download_progress',
+                    c.last_status,
+                    to=request.sid   # IMPORTANT
+                )
+
+            elif c.is_paused:
+                socketio.emit(
+                    'download_paused',
+                    {'download_id': did},
+                    to=request.sid
+                )
 
     @socketio.on('start_download')
     def handle_start(data):
