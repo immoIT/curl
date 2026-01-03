@@ -43,6 +43,7 @@ if os.path.basename(BASE_DIR) == 'py':
 
 DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
 TOKEN_PATH = os.path.join(BASE_DIR, 'token.json')
+COOKIES_PATH = os.path.join(BASE_DIR, 'cookies.txt')  # --- ADDED: Cookie path ---
 
 active_downloads = {}
 download_history = [] 
@@ -93,6 +94,12 @@ def get_ydl_opts(is_download=False, res_id=None):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         }
     }
+
+    # --- ADDED: Cookies Check ---
+    if os.path.exists(COOKIES_PATH):
+        opts['cookiefile'] = COOKIES_PATH
+    # -----------------------------
+
     if is_download:
         opts.update({
             "format": f"{res_id}+bestaudio/best",
