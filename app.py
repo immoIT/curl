@@ -24,15 +24,6 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'bolt-downloader-secure-
 # Initialize SocketIO
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode=ASYNC_MODE)
 
-app.register_blueprint(curl_bp)
-register_socket_events(socketio)
-
-if __name__ == "__main__":
-    # FIX: Set use_reloader=False to prevent the WERKZEUG_SERVER_FD KeyError
-    # We keep debug=True for logs, but disable the reloader which causes the crash
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=False)
-ASYNC_MODE)
-
 # Register the Blueprint (Connects routes)
 app.register_blueprint(curl_bp)
 
@@ -40,5 +31,6 @@ app.register_blueprint(curl_bp)
 register_socket_events(socketio)
 
 if __name__ == "__main__":
-    # socketio.run handles the web server for both modes
-    socketio.run(app, debug=True, port=5000)
+    # FIX: Set use_reloader=False to prevent the WERKZEUG_SERVER_FD KeyError
+    # We keep debug=True for logs, but disable the reloader which causes the crash
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, use_reloader=False)
