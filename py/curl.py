@@ -1,4 +1,4 @@
-from flask import Blueprint, request, render_template, jsonify, Response, stream_with_context
+from flask import Blueprint, request, render_template, jsonify, Response, stream_with_context, send_from_directory
 from flask_socketio import emit
 import requests
 import os
@@ -10,13 +10,14 @@ import psutil
 import io
 import threading
 import tempfile
+import yt_dlp
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, unquote, parse_qs
 
-# --- DEPENDENCY CHECKS (Termux vs Server) ---
-
-# 1. OpenCV Check: Prevents crash if cv2/libavcodec is missing
+# --- DEPENDENCY CHECKS ---
+socketio_instance = None
+# 1. OpenCV Check
 try:
     import cv2
     OPENCV_AVAILABLE = True
@@ -38,6 +39,57 @@ active_downloads = {}
 download_history = [] 
 SCOPES = ['https://www.googleapis.com/auth/drive'] 
 TOKEN_PATH = 'token.json'
+DOWNLOAD_DIR = "downloads"
+
+def safe_filename(name):
+    """Sanitizes filename to be safe for filesystems."""
+    if not name: return "download"
+    return (
+        name.encode("ascii", "ignore")
+            .decode("ascii")
+            .replace(" ", "_")
+    )
+
+def ascii_filename(name):
+    """Ensures filename is strictly ASCII for HTTP headers."""
+    if not name: return "download"
+    return (
+        name.encode("ascii", "ignore")
+            .decode("ascii")
+            .replace(" ", "_")
+    ) 
+
+if not os.path.exists(DOWNLOAD_DIR):
+    os.makedirs(DOWNLOAD_DIR)
+
+# --- YOUTUBE CONFIGURATION ---
+VIDEO_FORMATS = {
+    "360p": "134",
+    "480p": "135",
+    "720p": "136",
+    "1080p": "137"
+}
+
+def get_ydl_opts(is_download=False, res_id=None):
+    """
+    Configuration options for yt-dlp.
+    """
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "source_address": "0.0.0.0", # Force IPv4 to fix DNS
+        "cachedir": False,
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+    }
+    if is_download:
+        opts.update({
+            "format": f"{res_id}+bestaudio/best",
+            "merge_output_format": "mp4",
+            "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s - %(format_note)s.%(ext)s"),
+        })
+    return opts
 
 # --- GOOGLE DRIVE UTILITIES ---
 
@@ -220,7 +272,6 @@ def format_time(seconds):
 
 @curl_bp.route("/", methods=["GET"])
 def index():
-    # Supports the dashboard logic from curl2.py
     return render_template('curl.html', active_view='dashboard')
 
 @curl_bp.route("/direct", methods=["GET"])
@@ -231,10 +282,133 @@ def direct_view():
 def drive_view():
     return render_template('curl.html', active_view='drive')
 
-# --- HEALTH CHECK ROUTE ---
+@curl_bp.route("/youtube", methods=["GET"])
+def youtube_view():
+    return render_template('curl.html', active_view='youtube')
+
 @curl_bp.route("/healthz", methods=["GET"])
 def healthz():
     return jsonify({"status": "ok"}), 200
+
+# --- YOUTUBE ROUTES ---
+
+@curl_bp.route('/youtube/fetch_info', methods=['POST'])
+def fetch_info():
+    data = request.get_json()
+    url = data.get('url')
+    
+    try:
+        with yt_dlp.YoutubeDL(get_ydl_opts()) as ydl:
+            info = ydl.extract_info(url, download=False)
+            duration = info.get("duration", 0)
+            
+            # Audio logic
+            audio_formats = [f for f in info.get("formats", []) if f.get("acodec") != "none" and f.get("abr")]
+            best_audio = max(audio_formats, key=lambda x: x["abr"], default=None)
+            audio_size = (best_audio["abr"] * 1000 * duration) / 8 if best_audio else 0
+            
+            available = []
+            for res, vid_id in VIDEO_FORMATS.items():
+                v_fmt = next((f for f in info.get("formats", []) if f.get("format_id") == vid_id), None)
+                if v_fmt:
+                    v_size = v_fmt.get("filesize") or v_fmt.get("filesize_approx") or 0
+                    if v_size > 0:
+                        total_mb = round((v_size + audio_size) / (1024 * 1024), 2)
+                        available.append({"res": res, "size": f"{total_mb} MB"})
+            
+            return jsonify({
+                'success': True, 
+                'title': info.get("title"), 
+                'thumbnail': info.get("thumbnail"), 
+                'duration': time.strftime('%H:%M:%S', time.gmtime(duration)), 
+                'formats': available
+            })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@curl_bp.route('/youtube/download_and_upload', methods=['POST'])
+def youtube_download_task():
+    data = request.get_json()
+    url = data.get('url')
+    res = data.get('resolution')
+
+    if not url or not res:
+        return jsonify(success=False, error="Invalid request")
+
+    download_id = f"yt_{int(time.time())}"
+
+    def task():
+        filepath = None
+        try:
+            # ---- DOWNLOAD (NO SOCKET EMIT) ----
+            ydl_opts = get_ydl_opts(is_download=True, res_id=VIDEO_FORMATS[res])
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filepath = ydl.prepare_filename(info)
+                filename = os.path.basename(filepath)
+
+            total_size = os.path.getsize(filepath)
+
+            # ---- START UPLOAD (SHOW ACTIVE DOWNLOAD) ----
+            if socketio_instance:
+                socketio_instance.emit("download_progress", {
+                    "download_id": download_id,
+                    "filename": filename,
+                    "phase": "uploading",
+                    "percentage": 0,
+                    "speed": "Uploading...",
+                    "eta": "--",
+                    "downloaded": 0,
+                    "total_size": total_size
+                })
+
+            # ---- UPLOAD TO GOOGLE DRIVE ----
+            drive_file = upload_file_to_drive(
+                filepath,
+                filename,
+                lambda status: socketio_instance.emit("download_progress", {
+                    "download_id": download_id,
+                    "filename": filename,
+                    "phase": "uploading",
+                    "percentage": int(status.progress() * 100),
+                    "speed": "Uploading...",
+                    "eta": "--",
+                    "downloaded": int(status.progress() * total_size),
+                    "total_size": total_size
+                }) if socketio_instance else None
+            )
+
+            # ---- SAVE TO LIBRARY ----
+            download_history.append({
+                "name": filename,
+                "size": total_size,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "gdrive_id": drive_file.get("id") if drive_file else None
+            })
+
+            if socketio_instance:
+                socketio_instance.emit("download_complete", {
+                    "download_id": download_id,
+                    "filename": filename
+                })
+
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
+
+        except Exception as e:
+            if socketio_instance:
+                socketio_instance.emit("download_error", {
+                    "download_id": download_id,
+                    "error": str(e)
+                })
+
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
+
+    threading.Thread(target=task, daemon=True).start()
+    return jsonify(success=True)
+
+# --- UTILITY ROUTES ---
 
 @curl_bp.route("/detect_filename", methods=["POST"])
 def detect_filename_route():
@@ -242,7 +416,6 @@ def detect_filename_route():
     url = data.get('url', '')
     if not url: return jsonify({'success': False})
     
-    # 1. Check if it's a Google Drive Link
     gid = extract_gdrive_id(url)
     if gid:
         meta = get_file_metadata(gid)
@@ -250,7 +423,6 @@ def detect_filename_route():
         if name and name != "Unknown":
             return jsonify({'success': True, 'filename': name})
             
-    # 2. Normal URL Detection
     try:
         head = requests.head(url, timeout=5, allow_redirects=True)
         name = extract_filename_from_headers(head.headers)
@@ -276,7 +448,7 @@ def delete_file_route():
     download_history = [f for f in download_history if f['name'] != filename]
     
     try:
-        path = os.path.join("downloads", filename)
+        path = os.path.join(DOWNLOAD_DIR, filename)
         if os.path.exists(path): os.remove(path)
     except: pass
     
@@ -290,8 +462,7 @@ def upload_sub():
     
     if file:
         filename = re.sub(r'[<>:"/\\|?*]', '_', file.filename)
-        save_path = os.path.join("downloads", filename)
-        os.makedirs("downloads", exist_ok=True)
+        save_path = os.path.join(DOWNLOAD_DIR, filename)
         file.save(save_path)
         try:
             drive_file = upload_file_to_drive(save_path, filename)
@@ -307,20 +478,15 @@ def upload_sub():
 def get_subs():
     return jsonify([])
 
-# --- VIDEO METADATA ROUTE (OPENCV PROBE) ---
-
 @curl_bp.route("/video_meta/<file_id>", methods=["GET"])
 def get_video_meta(file_id):
-    """Detects real video resolution using OpenCV on a chunk download."""
     creds = get_credentials()
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
+    if not creds: return jsonify({'error': 'Unauthorized'}), 401
 
     stream_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     
     try:
-        # CHECK: Only attempt chunk download if OpenCV is installed
         tmp_path = None
         if OPENCV_AVAILABLE:
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
@@ -328,13 +494,11 @@ def get_video_meta(file_id):
                 with requests.get(stream_url, headers=headers, stream=True) as r:
                     for chunk in r.iter_content(chunk_size=4096):
                         tmp_file.write(chunk)
-                        if tmp_file.tell() > 10 * 1024 * 1024: 
-                            break
+                        if tmp_file.tell() > 10 * 1024 * 1024: break
         
         width, height = 0, 0
         source = 'metadata'
 
-        # Only use OpenCV if available and file exists
         if OPENCV_AVAILABLE and tmp_path:
             try:
                 cap = cv2.VideoCapture(tmp_path)
@@ -346,11 +510,8 @@ def get_video_meta(file_id):
             except Exception as e:
                 print(f"OpenCV Probe Error: {e}")
         
-        # Cleanup temp file
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if tmp_path and os.path.exists(tmp_path): os.remove(tmp_path)
 
-        # Fallback to Google Drive Metadata (Always used in Termux if CV2 missing)
         if width == 0 or height == 0:
             meta = get_file_metadata(file_id)
             video_meta = meta.get('videoMediaMetadata', {})
@@ -358,26 +519,18 @@ def get_video_meta(file_id):
             height = video_meta.get('height', 0)
             source = 'metadata_fallback'
 
-        return jsonify({
-            'width': width,
-            'height': height,
-            'source': source
-        })
-
+        return jsonify({'width': width, 'height': height, 'source': source})
     except Exception as e:
-        print(f"Meta Probe Error: {e}")
         return jsonify({'width': 0, 'height': 0, 'error': str(e)})
 
-# --- STREAMING & DOWNLOAD ROUTES ---
+# --- STREAMING ROUTES ---
 
 @curl_bp.route('/download_drive/<file_id>')
 def download_drive(file_id):
-    """Downloads a file directly from Google Drive."""
     return stream_drive_content(file_id, as_attachment=True)
 
 @curl_bp.route('/stream_drive/<file_id>')
 def stream_drive(file_id):
-    """Streams media for the player."""
     return stream_drive_content(file_id, as_attachment=False)
 
 def stream_drive_content(file_id, as_attachment=False):
@@ -385,7 +538,8 @@ def stream_drive_content(file_id, as_attachment=False):
     if not creds: return "Credentials error", 401
 
     meta = get_file_metadata(file_id)
-    filename = meta.get('name', 'downloaded_file').lower()
+    raw_name = meta.get('name', 'downloaded_file')
+    filename = raw_name.lower()
     
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
@@ -403,22 +557,25 @@ def stream_drive_content(file_id, as_attachment=False):
     if filename.endswith('.vtt'): content_type = "text/vtt"
     
     excluded_headers = ['content-encoding', 'transfer-encoding', 'connection', 'authorization', 'content-disposition']
-    
-    if not as_attachment and filename.endswith('.srt'):
+    if not as_attachment and filename.endswith('.srt'): 
         excluded_headers.append('content-length')
-        
+    
     response_headers = [(n, v) for (n, v) in req.headers.items() if n.lower() not in excluded_headers]
 
-    safe_filename = filename.replace('"', '\\"')
+    # FIX: Ensure ASCII filename for headers to prevent UnicodeEncodeError in Termux
+    ascii_name = ascii_filename(raw_name).replace('"', '')
     disposition = 'attachment' if as_attachment else 'inline'
-    response_headers.append(('Content-Disposition', f'{disposition}; filename="{safe_filename}"'))
+
+    response_headers.append(
+        ('Content-Disposition', f'{disposition}; filename="{ascii_name}"')
+    )
 
     return Response(stream_with_context(req.iter_content(chunk_size=65536)), 
                    status=req.status_code, headers=response_headers, content_type=content_type)
 
-@curl_bp.route('/stream/<path:filename>')
+@curl_bp.route('/stream/<filename>')
 def stream_file(filename):
-    file_path = os.path.join("downloads", filename)
+    file_path = os.path.join(DOWNLOAD_DIR, filename)
     if not os.path.exists(file_path): return "File not found", 404
 
     range_header = request.headers.get('Range', None)
@@ -465,7 +622,9 @@ class DownloadController:
         adapter = requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=3)
         self.session.mount('http://', adapter)
         self.session.mount('https://', adapter)
-        self.session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
 
     def determine_filename(self, response_headers=None):
         if self.final_filename: return self.final_filename
@@ -483,17 +642,13 @@ def download_with_smart_filename(controller, socketio_instance):
         if gid:
             creds = get_credentials()
             if creds:
-                # Switch to API URL
                 url = f"https://www.googleapis.com/drive/v3/files/{gid}?alt=media"
-                # Add Auth Header to the session
                 controller.session.headers.update({"Authorization": f"Bearer {creds.token}"})
-                
-                # Fetch filename via API if not set
                 if not controller.final_filename:
                     meta = get_file_metadata(gid)
                     controller.final_filename = meta.get('name')
 
-        # --- 2. DETERMINE FILENAME (If not set) ---
+        # --- 2. DETERMINE FILENAME ---
         if not controller.final_filename:
             try:
                 head = controller.session.head(url, timeout=10, allow_redirects=True)
@@ -501,8 +656,7 @@ def download_with_smart_filename(controller, socketio_instance):
             except: controller.determine_filename()
         
         filename = controller.final_filename
-        os.makedirs("downloads", exist_ok=True)
-        filepath = os.path.join("downloads", filename)
+        filepath = os.path.join(DOWNLOAD_DIR, filename)
 
         if controller.is_cancelled: return
 
@@ -550,7 +704,8 @@ def download_with_smart_filename(controller, socketio_instance):
                                 "total_size": total_size
                             }
                             controller.last_status = status
-                            socketio_instance.emit("download_progress", status)
+                            if socketio_instance:
+                                socketio_instance.emit("download_progress", status)
                             last_emit = now
 
         if controller.is_cancelled:
@@ -560,17 +715,17 @@ def download_with_smart_filename(controller, socketio_instance):
 
         # --- 4. UPLOAD PHASE ---
         if not controller.is_paused and controller.active_run_id == current_run_id:
-            
-            socketio_instance.emit("download_progress", {
-                "download_id": download_id,
-                "filename": filename,
-                "phase": "uploading",
-                "percentage": 0,
-                "speed": "Starting upload...",
-                "eta": "--",
-                "downloaded": 0,
-                "total_size": total_size
-            })
+            if socketio_instance:
+                socketio_instance.emit("download_progress", {
+                    "download_id": download_id,
+                    "filename": filename,
+                    "phase": "uploading",
+                    "percentage": 0,
+                    "speed": "Starting upload...",
+                    "eta": "--",
+                    "downloaded": 0,
+                    "total_size": total_size
+                })
 
             upload_start_time = time.time()
             last_upload_emit = 0
@@ -581,10 +736,8 @@ def download_with_smart_filename(controller, socketio_instance):
                 if now - last_upload_emit >= 0.5:
                     progress_bytes = status.resumable_progress
                     total_bytes = status.total_size
-                    
                     elapsed = now - upload_start_time
                     up_speed = progress_bytes / max(elapsed, 0.1)
-                    
                     rem_bytes = total_bytes - progress_bytes
                     eta = format_time(rem_bytes / up_speed if up_speed > 0 else 0)
                     
@@ -599,12 +752,12 @@ def download_with_smart_filename(controller, socketio_instance):
                         "total_size": total_bytes
                     }
                     controller.last_status = status_payload
-                    socketio_instance.emit("download_progress", status_payload)
+                    if socketio_instance:
+                        socketio_instance.emit("download_progress", status_payload)
                     last_upload_emit = now
 
             try:
                 drive_file = upload_file_to_drive(filepath, filename, progress_callback=upload_callback)
-                
                 if drive_file:
                     download_history.append({
                         'name': filename,
@@ -615,24 +768,24 @@ def download_with_smart_filename(controller, socketio_instance):
                         'storage': 'drive'
                     })
                     if os.path.exists(filepath): os.remove(filepath)
-                    socketio_instance.emit("download_complete", {"download_id": download_id, "filename": filename})
+                    if socketio_instance:
+                        socketio_instance.emit("download_complete", {"download_id": download_id, "filename": filename})
                 else:
                     raise Exception("Upload failed, no file object returned.")
-
                 active_downloads.pop(download_id, None)
 
             except Exception as e:
-                socketio_instance.emit("download_error", {"download_id": download_id, "error": f"Upload Error: {str(e)}"})
+                if socketio_instance:
+                    socketio_instance.emit("download_error", {"download_id": download_id, "error": f"Upload Error: {str(e)}"})
 
     except Exception as e:
         if not controller.is_paused and not controller.is_cancelled:
-            socketio_instance.emit("download_error", {"download_id": download_id, "error": str(e)})
+            if socketio_instance:
+                socketio_instance.emit("download_error", {"download_id": download_id, "error": str(e)})
 
 # --- SOCKET ---
 
 def background_system_stats(socketio):
-    # Runs in a separate thread. Using time.sleep is safe here because this 
-    # thread is separated from the main event loop if one exists.
     while True:
         try:
             mem = psutil.virtual_memory()
@@ -642,8 +795,8 @@ def background_system_stats(socketio):
             time.sleep(5)
 
 def register_socket_events(socketio):
-    # Using standard threading is the most robust way to support both
-    # Termux (often no eventlet) and Server (eventlet enabled).
+    global socketio_instance
+    socketio_instance = socketio
     threading.Thread(target=background_system_stats, args=(socketio,), daemon=True).start()
 
     @socketio.on('connect')
@@ -657,13 +810,20 @@ def register_socket_events(socketio):
     @socketio.on('start_download')
     def handle_start(data):
         did = str(uuid.uuid4())
-        c = DownloadController(did, data['url'], data.get('filename_mode'), data.get('custom_filename'))
+        
+        c = DownloadController(
+            did, 
+            data['url'], 
+            data.get('filename_mode'), 
+            data.get('custom_filename')
+        )
         active_downloads[did] = c
+        
         emit('download_progress', {
             'download_id': did, 'filename': 'Starting...', 'phase': 'downloading', 'percentage': 0,
             'speed': '0 B/s', 'eta': '--', 'downloaded': 0, 'total_size': 0
         })
-        # Standard threading is safer for mixing sync I/O (requests) with async server
+        
         threading.Thread(target=download_with_smart_filename, args=(c, socketio)).start()
 
     @socketio.on('pause_download')
@@ -687,9 +847,11 @@ def register_socket_events(socketio):
         if did in active_downloads:
             c = active_downloads[did]
             c.is_cancelled = True
-            active_downloads.pop(did, None)
-            if c.is_paused and c.final_filename:
-                try: 
-                    p = os.path.join("downloads", c.final_filename)
-                    if os.path.exists(p): os.remove(p)
-                except: pass
+            # Don't pop immediately, let the thread handle cleanup
+            if c.is_paused:
+                active_downloads.pop(did, None)
+                if c.final_filename:
+                    try: 
+                        p = os.path.join(DOWNLOAD_DIR, c.final_filename)
+                        if os.path.exists(p): os.remove(p)
+                    except: pass

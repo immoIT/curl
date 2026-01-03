@@ -57,14 +57,62 @@
                 </div>
             </div>
 
-        </div> </div>
+            <div class="col-12 mt-3 d-none" id="section-youtube">
+                <div class="card h-100 shadow-sm border-0">
+                    <div class="card-header bg-transparent border-bottom">
+                        <i class="bi bi-youtube me-2 text-danger"></i>YouTube Downloader
+                    </div>
+                    <div class="card-body">
+                        <form id="ytSearchForm">
+                            <div class="input-group mb-3">
+                                <span class="input-group-text bg-body-tertiary border-end-0"><i class="bi bi-youtube text-danger"></i></span>
+                                <input type="url" id="ytUrl" class="form-control border-start-0" placeholder="Paste YouTube URL" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="pasteText('ytUrl')"><i class="bi bi-clipboard"></i></button>
+                                <button class="btn btn-danger" type="submit" id="ytFetchBtn">Fetch Info</button>
+                            </div>
+                        </form>
 
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="fw-bold mb-0 text-body"><i class="bi bi-activity me-2 text-primary"></i>Active Downloads</h5>
-            <span class="badge bg-primary rounded-pill" id="activeCount">0</span>
-        </div>
-        <div id="activeDownloads">
+                        <div id="ytLoading" class="text-center d-none py-4">
+                            <div class="spinner-border text-danger mb-2" role="status"></div>
+                            <p class="small text-muted mb-0">Fetching video formats...</p>
+                        </div>
+
+                        <div id="ytInfoArea" class="d-none mt-3">
+                            <div class="row">
+                                <div class="col-md-5 mb-3 mb-md-0">
+                                    <img id="ytThumb" src="" class="img-fluid rounded shadow-sm w-100" alt="Thumbnail">
+                                </div>
+                                
+                                <div class="col-md-7">
+                                    <h5 id="ytTitle" class="fw-bold mb-1"></h5>
+                                    <p class="text-muted small mb-3">Duration: <span id="ytDur"></span></p>
+                                    
+                                    <h6 class="text-muted small text-uppercase fw-bold mb-2">Available Formats</h6>
+                                    
+                                    <div id="ytQualities" class="list-group list-group-flush border rounded overflow-hidden">
+                                        </div>
+
+                                    <div id="ytThinProgress" class="yt-thin-progress d-none mt-3">
+                                        <div class="yt-line"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> 
+    </div>
+
+    <div class="col-12" id="activeDownloadsSection">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="fw-bold mb-0 text-body">
+            <i class="bi bi-activity me-2 text-primary"></i>Active Downloads
+        </h5>
+        <span class="badge bg-primary rounded-pill" id="activeCount">0</span>
+    </div>
+    <div id="activeDownloads">
             <div id="emptyState" class="text-center py-5 text-muted opacity-50 border rounded-3 border-dashed bg-body-tertiary">
                 <i class="bi bi-cloud-download display-1"></i><p class="mt-3">No active downloads running</p>
             </div>
@@ -79,84 +127,15 @@
             </div>
             <div class="card-body p-2">
                 <div id="savedFilesList" class="row g-2" style="max-height: 500px; overflow-y: auto;">
-                    </div>
+                </div>
             </div>
         </div>
     </div>
 
 </div>
 
-<script>
-    /**
-     * Initializes the view based on the server-provided 'active_view' variable.
-     * This runs immediately when the page loads.
-     */
-    document.addEventListener('DOMContentLoaded', function() {
-        // 'active_view' is passed from Flask (e.g., 'dashboard', 'direct', 'drive')
-        // Default to 'dashboard' if undefined
-        const currentView = "{{ active_view|default('dashboard') }}";
-        applyViewLayout(currentView);
-    });
-
-    /**
-     * Applies CSS classes to show/hide sections based on the view name.
-     */
-    function applyViewLayout(viewName) {
-        const direct = document.getElementById('section-direct');
-        const drive = document.getElementById('section-drive');
-        
-        // Safety check
-        if (!direct || !drive) return;
-
-        // 1. Reset everything (remove layout-specific classes)
-        // We remove d-none, col-12, col-lg-6, margins to start fresh
-        direct.classList.remove('d-none', 'col-12', 'col-lg-6');
-        drive.classList.remove('d-none', 'col-12', 'col-lg-6', 'mt-3', 'mt-lg-0');
-
-        // 2. Apply logic based on view
-        if (viewName === 'dashboard') {
-            // Show BOTH side-by-side
-            direct.className = "col-lg-6"; // Bootstrap grid class
-            drive.className = "col-lg-6 mt-3 mt-lg-0";
-        } 
-        else if (viewName === 'direct') {
-            // Show DIRECT only (Full Width)
-            drive.classList.add('d-none'); // Hide Drive
-            direct.className = "col-12";   // Full width
-        } 
-        else if (viewName === 'drive') {
-            // Show DRIVE only (Full Width)
-            direct.classList.add('d-none'); // Hide Direct
-            drive.className = "col-12";     // Full width
-        }
-    }
-</script>
 {% endblock %}
-n-items: center;
-            transition: opacity 0.3s ease;
-        }
-        .loader-content { text-align: center; color: white; animation: pulse 1.5s infinite ease-in-out; }
-        @keyframes pulse { 0% { opacity: 0.7; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } 100% { opacity: 0.7; transform: scale(0.98); } }
-
-        /* =========================================
-           2. PLAYER STYLES (UPDATED FOR FULLSCREEN & CENTER BTN)
-           ========================================= */
-        
-        /* Force Modal to cover the whole screen */
-        #playerModal .modal-dialog {
-            max-width: 100%;
-            margin: 0;
-            height: 100%;
-            padding: 0;
-        }
-
-        /* Make the content container transparent and full height */
-        #playerModal .modal-content {
-            height: 100%;
-            border: none;
-            border-radius: 0;
-            /* CHANGED: Gray Background with 80% Opacity */
-            background-color: rgba(50, 50, 50, 0.8) !important; 
+or: rgba(50, 50, 50, 0.8) !important; 
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
         }

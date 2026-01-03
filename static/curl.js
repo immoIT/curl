@@ -1,5 +1,3 @@
-// - Complete Client Logic
-
 // =========================================================
 // 1. THEME CONFIGURATION
 // =========================================================
@@ -72,24 +70,33 @@ if(applyThemeBtn && themeSelect) {
 const socket = io();
 let activeDownloadCount = 0;
 const cancelledIds = new Set();
+const ytAbortControllers = new Map(); // Store AbortControllers for YouTube downloads
 
 socket.on('connect', () => {
     const status = document.getElementById('connectionStatus');
-    status.className = 'badge bg-success';
-    status.innerHTML = '<i class="bi bi-wifi"></i> Connected';
-    document.getElementById('activeDownloads').innerHTML = `
-        <div id="emptyState" class="text-center py-5 text-muted opacity-50 border rounded-3 border-dashed bg-body-tertiary">
-            <i class="bi bi-cloud-download display-1"></i><p class="mt-3">No active downloads running</p>
-        </div>`;
+    if(status) {
+        status.className = 'badge bg-success';
+        status.innerHTML = '<i class="bi bi-wifi"></i> Connected';
+    }
+    const ad = document.getElementById('activeDownloads');
+    if(ad) {
+        ad.innerHTML = `
+            <div id="emptyState" class="text-center py-5 text-muted opacity-50 border rounded-3 border-dashed bg-body-tertiary">
+                <i class="bi bi-cloud-download display-1"></i><p class="mt-3">No active downloads running</p>
+            </div>`;
+    }
     activeDownloadCount = 0;
-    document.getElementById('activeCount').innerText = 0;
+    const ac = document.getElementById('activeCount');
+    if(ac) ac.innerText = 0;
     loadSavedFiles();
 });
 
 socket.on('disconnect', () => {
     const status = document.getElementById('connectionStatus');
-    status.className = 'badge bg-danger';
-    status.innerHTML = '<i class="bi bi-wifi-off"></i> Offline';
+    if(status) {
+        status.className = 'badge bg-danger';
+        status.innerHTML = '<i class="bi bi-wifi-off"></i> Offline';
+    }
 });
 
 socket.on('download_progress', (data) => updateDownloadUI(data));
@@ -106,6 +113,7 @@ if(document.getElementById('downloadForm')) {
         const mode = custom ? 'custom' : 'original';
         if(!url) return showToast('Please enter a URL', 'danger');
         
+        showActiveDownloads();
         socket.emit('start_download', {
             url: url,
             filename_mode: mode,
@@ -119,146 +127,113 @@ if(document.getElementById('downloadForm')) {
     });
 }
 
-// --- YOUTUBE FORM LOGIC (Fully Updated) ---
-document.addEventListener('DOMContentLoaded', function() {
-    const ytForm = document.getElementById('youtubeForm');
-    const ytInput = document.getElementById('ytUrl');
-    const ytDownloadBtn = document.getElementById('ytDownloadBtn');
-    
-    // UI Containers for Options
-    const ytOptionsWrapper = document.getElementById('ytOptionsWrapper');
-    const ytLoading = document.getElementById('ytLoading');
-    const ytQualityList = document.getElementById('ytQualityList');
-    
-    // Elements for Preview/Edit
-    const ytCustom = document.getElementById('ytCustomFilename');
-    const ytPreview = document.getElementById('ytFilenamePreview');
-    const ytDisplayMode = document.getElementById('ytPreviewModeDisplay');
-    const ytEditBtn = document.getElementById('ytEditBtn');
-    
-    let ytDebounceTimer;
+// =========================================================
+// UPDATED YOUTUBE LOGIC (Client-Side Streaming)
+// =========================================================
+const ytForm = document.getElementById('ytSearchForm');
+if(ytForm) {
+    ytForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        fetchYoutubeInfo();
+    });
+}
 
-    // 1. Debounce Input & Trigger Fetch
-    if(ytInput) {
-        ytInput.addEventListener('input', () => {
-             // Reset UI immediately when user types
-             if(ytOptionsWrapper) ytOptionsWrapper.classList.add('d-none');
-             if(ytDownloadBtn) ytDownloadBtn.disabled = true;
-             
-             clearTimeout(ytDebounceTimer);
-             const url = ytInput.value.trim();
-             
-             // Only fetch if it looks like YouTube
-             if(url && (url.includes('youtube.com') || url.includes('youtu.be'))) {
-                 ytDebounceTimer = setTimeout(() => fetchYoutubeInfo(url), 1000); // 1s debounce
-             }
-        });
-    }
+function fetchYoutubeInfo() {
+    const url = document.getElementById('ytUrl').value;
+    const loading = document.getElementById('ytLoading');
+    const infoArea = document.getElementById('ytInfoArea');
+    const fetchBtn = document.getElementById('ytFetchBtn');
 
-    // 2. Fetch Video Info (Titles + Formats)
-    function fetchYoutubeInfo(url) {
-        if(!ytLoading) return;
-        ytLoading.classList.remove('d-none');
-        
-        fetch('/get_yt_info', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({url})
-        })
-        .then(r => r.json())
-        .then(data => {
-            ytLoading.classList.add('d-none');
+    if(!url) return showToast('Please enter a YouTube URL', 'warning');
+
+    loading.classList.remove('d-none');
+    infoArea.classList.add('d-none');
+    fetchBtn.disabled = true;
+
+    fetch('/youtube/fetch_info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('ytThumb').src = data.thumbnail;
+            document.getElementById('ytTitle').innerText = data.title;
+            document.getElementById('ytDur').innerText = data.duration;
             
-            if(data.success) {
-                // A. Setup Filename Editor
-                if(ytPreview) ytPreview.innerText = data.title;
-                if(ytCustom) ytCustom.value = data.title; 
-                if(ytDisplayMode) ytDisplayMode.style.display = 'flex';
-                if(ytCustom) ytCustom.style.display = 'none';
-
-                // B. Setup Quality Radio Buttons
-                if(ytQualityList) {
-                    ytQualityList.innerHTML = data.formats.map((fmt, index) => {
-                        const isChecked = index === 0 ? 'checked' : '';
-                        const badgeClass = fmt.type === 'audio' ? 'bg-info' : 'bg-primary';
-                        const icon = fmt.type === 'audio' ? 'bi-music-note-beamed' : 'bi-film';
-                        
-                        return `
-                        <label class="list-group-item d-flex justify-content-between align-items-center rounded-2 mb-1 p-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <input class="form-check-input me-1" type="radio" name="ytQuality" value="${fmt.id}" ${isChecked}>
-                                <i class="bi ${icon}"></i>
-                                <span>${fmt.label}</span>
-                            </div>
-                            <span class="badge ${badgeClass} rounded-pill font-monospace">${fmt.size}</span>
-                        </label>`;
-                    }).join('');
-                }
-
-                // C. Show UI & Enable Button
-                if(ytOptionsWrapper) ytOptionsWrapper.classList.remove('d-none');
-                if(ytDownloadBtn) ytDownloadBtn.disabled = false;
-
+            const qualityList = document.getElementById('ytQualities');
+            qualityList.innerHTML = '';
+            
+            if(data.formats.length === 0) {
+                 qualityList.innerHTML = '<div class="text-muted p-2">No suitable formats found.</div>';
             } else {
-                showToast("Failed to fetch info: " + (data.error || "Unknown"), 'warning');
+                data.formats.forEach(f => {
+                    const btn = document.createElement('button');
+                    btn.className = "list-group-item list-group-item-action d-flex justify-content-between align-items-center";
+                    btn.innerHTML = `<span><i class="bi bi-film me-2"></i>${f.res}</span>
+                                     <span class="badge bg-primary rounded-pill">${f.size}</span>`;
+                    
+                    // FIXED: Logic to handle visibility on click
+                    btn.onclick = () => {
+                        hideActiveDownloads(); // Ensure it's hidden during the server-side download phase
+                        showYtLine();          // Start the thin line animation
+                        performYoutubeDownload(url, f.res);
+                    };
+                    qualityList.appendChild(btn);
+                });
             }
-        })
-        .catch(err => {
-            ytLoading.classList.add('d-none');
-            console.error(err);
-        });
-    }
-
-    // 3. Edit Filename Toggle
-    if(ytEditBtn && ytCustom) {
-        ytEditBtn.addEventListener('click', () => {
-            if(ytDisplayMode) ytDisplayMode.style.display = 'none';
-            ytCustom.style.display = 'block';
-            ytCustom.focus();
-        });
-    }
-
-    // 4. Form Submit
-    if (ytForm && ytInput) {
-        ytForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const url = ytInput.value.trim();
             
-            // Get custom filename
-            let customName = null;
-            if(ytCustom && ytCustom.style.display !== 'none' && ytCustom.value.trim()) {
-                customName = ytCustom.value.trim();
-            } else if (ytPreview) {
-                // Fallback to the preview text if user didn't open edit mode
-                customName = ytPreview.innerText.trim();
-            }
+            infoArea.classList.remove('d-none');
+        } else {
+            showToast("Error: " + data.error, 'danger');
+        }
+    })
+    .catch(err => showToast("Fetch failed: " + err.message, 'danger'))
+    .finally(() => {
+        loading.classList.add('d-none');
+        fetchBtn.disabled = false;
+    });
+}
 
-            // Get Selected Quality
-            const selectedRadio = document.querySelector('input[name="ytQuality"]:checked');
-            if (!selectedRadio) {
-                return showToast('Please select a quality option', 'warning');
-            }
-            const quality = selectedRadio.value;
-
-            if(!url) return showToast('Please enter a YouTube URL', 'danger');
-
-            socket.emit('start_download', {
-                url: url,
-                mode: 'youtube',
-                custom_filename: customName,
-                quality: quality
-            });
-            showToast('Starting YouTube Download...', 'danger');
-            
-            // Reset UI
-            ytInput.value = '';
-            if(ytOptionsWrapper) ytOptionsWrapper.classList.add('d-none');
-            if(ytDownloadBtn) ytDownloadBtn.disabled = true;
+async function performYoutubeDownload(url, resolution) {
+    try {
+        const res = await fetch('/youtube/download_and_upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, resolution })
         });
-    }
-});
 
-// Helper: Create Download Item HTML
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+
+    } catch (e) {
+        hideYtLine();
+        showToast(e.message, 'danger');
+    }
+}
+
+function showYtLine() {
+    document.getElementById('ytThinProgress')?.classList.remove('d-none');
+}
+
+function hideYtLine() {
+    document.getElementById('ytThinProgress')?.classList.add('d-none');
+}
+
+function formatTimeSeconds(seconds) {
+    if (!seconds || seconds < 0) return '--';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+// =========================================================
+// UI HELPERS
+// =========================================================
+
 function createDownloadItem(data) {
     const div = document.createElement('div');
     div.id = `download-${data.download_id}`;
@@ -289,6 +264,12 @@ function createDownloadItem(data) {
 }
 
 function updateDownloadUI(data) {
+    // FIXED: Show Active Downloads only when YT upload starts
+    if (data.download_id.startsWith('yt_') && data.phase === 'uploading') {
+        hideYtLine();            
+        showActiveDownloads();   
+    }
+
     if(cancelledIds.has(data.download_id)) return;
     const container = document.getElementById('activeDownloads');
     let el = document.getElementById(`download-${data.download_id}`);
@@ -300,20 +281,19 @@ function updateDownloadUI(data) {
         container.prepend(el);
         activeDownloadCount++;
         document.getElementById('activeCount').innerText = activeDownloadCount;
+        
+        // Hide pause/resume for YT downloads as we don't support pause on streams yet
+        if (data.download_id.startsWith('yt_')) {
+            el.querySelector('.btn-pause').style.display = 'none';
+        }
     } else {
         el.classList.remove('paused', 'error');
         
-        // Handle Button Visibility Logic
         const pauseBtn = el.querySelector('.btn-pause');
         const resumeBtn = el.querySelector('.btn-resume');
         
-        // HIDE PAUSE FOR YOUTUBE TASKS (Detected via data.type flag)
-        if (data.type === 'youtube') {
-            if(pauseBtn) pauseBtn.style.display = 'none';
-            if(resumeBtn) resumeBtn.style.display = 'none';
-        } else {
-            // Restore normal behavior for direct downloads
-            if(pauseBtn) pauseBtn.style.display = 'inline-block';
+        if (!data.download_id.startsWith('yt_')) {
+            if(pauseBtn && !el.classList.contains('paused')) pauseBtn.style.display = 'inline-block';
             if(resumeBtn) resumeBtn.style.display = 'none';
         }
     }
@@ -344,7 +324,6 @@ function updateDownloadUI(data) {
     el.querySelector('.speed').innerText = data.speed;
     el.querySelector('.eta').innerText = data.eta;
     
-    // UPDATED: Handle dynamic sizes better (Shows "..." if fetching, fixes 0/0 issue)
     const downloadedStr = formatBytes(data.downloaded);
     const totalStr = (data.total_size && data.total_size > 0) ? formatBytes(data.total_size) : '...';
     
@@ -365,16 +344,28 @@ function handleComplete(data) {
         bar.style.width = '100%';
         el.querySelector('.status-text').innerHTML = '<span class="text-success">Completed</span>';
         el.querySelector('.btn-group').innerHTML = `<a href="#" class="btn btn-sm btn-success disabled">Saved</a>`;
-        loadSavedFiles();
+        
+        // Only reload server files if it wasn't a local YT download
+        if (!data.download_id.startsWith('yt_')) {
+            loadSavedFiles();
+        }
+        
         setTimeout(() => {
             el.style.opacity = '0';
-            setTimeout(() => { 
-                el.remove(); 
+            setTimeout(() => {
+                el.remove();
                 activeDownloadCount--;
+                if (activeDownloadCount < 0) activeDownloadCount = 0;
                 document.getElementById('activeCount').innerText = activeDownloadCount;
-                if(activeDownloadCount === 0) {
-                     const es = document.getElementById('emptyState');
-                     if(es) es.style.display = 'block';
+
+                if (activeDownloadCount === 0) {
+                    const es = document.getElementById('emptyState');
+                    if (es) es.style.display = 'block';
+                }
+
+                // FIXED: Hide Active Downloads section again if it was a YouTube task
+                if (data.download_id.startsWith('yt_')) {
+                    hideActiveDownloads();
                 }
             }, 500);
         }, 3000);
@@ -450,11 +441,21 @@ function resumeDownload(id) { socket.emit('resume_download', {download_id: id});
 function cancelDownload(id) { 
     const el = document.getElementById(`download-${id}`);
     const isUploading = el && el.getAttribute('data-phase') === 'uploading';
-    const title = isUploading ? 'Cancel Uploading?' : 'Cancel Download?';
-    const msg = isUploading 
-        ? 'Stop uploading to Google Drive? The file will be lost.' 
-        : 'Are you sure? The partial file will be deleted.';
-    const btnText = isUploading ? 'Cancel Upload' : 'Cancel Download';
+    const isYoutube = id.startsWith('yt_');
+    
+    let title, msg, btnText;
+    
+    if (isYoutube) {
+        title = 'Cancel Stream?';
+        msg = 'Stop streaming from YouTube?';
+        btnText = 'Stop';
+    } else {
+        title = isUploading ? 'Cancel Uploading?' : 'Cancel Download?';
+        msg = isUploading 
+            ? 'Stop uploading to Google Drive? The file will be lost.' 
+            : 'Are you sure? The partial file will be deleted.';
+        btnText = isUploading ? 'Cancel Upload' : 'Cancel Download';
+    }
 
     showConfirm({
         title: title,
@@ -464,7 +465,18 @@ function cancelDownload(id) {
         iconClass: 'bi-x-circle text-danger'
     }, () => {
         cancelledIds.add(id);
-        socket.emit('cancel_download', {download_id: id});
+        
+        if (isYoutube) {
+            // Client-side abort
+            if(ytAbortControllers.has(id)) {
+                ytAbortControllers.get(id).abort();
+                ytAbortControllers.delete(id);
+            }
+        } else {
+            // Server-side emit
+            socket.emit('cancel_download', {download_id: id});
+        }
+        
         if(el) {
             el.remove();
             activeDownloadCount--;
@@ -532,11 +544,6 @@ async function pasteText(id) {
         el.value = text;
         if(id === 'url') debounceDirectUrl(true);
         if(id === 'gdriveUrl') debounceConvertGDrive(true);
-        // Added trigger for YouTube input
-        if(id === 'ytUrl') {
-             // Manually trigger input event to start filename detection
-             el.dispatchEvent(new Event('input'));
-        }
     } catch(e) { showToast('Clipboard access denied or empty', 'warning'); }
 }
 
@@ -1032,7 +1039,7 @@ document.getElementById('subFileInput').addEventListener('change', async functio
             const originalText = label.innerHTML;
             label.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
             const res = await fetch('/upload_sub', { method: 'POST', body: formData });
-            const data = await res.json();
+            const text = await res.text(); console.log(text);
             if(data.success) {
                 video.querySelectorAll('track').forEach(t => t.remove());
                 buildSubMenu([{name: data.name, id: data.file_id}]);
@@ -1207,58 +1214,87 @@ document.getElementById('playerModal').addEventListener('hidden.bs.modal', funct
 // =========================================================
 
 function switchView(viewName, navElement) {
-    const directSection = document.getElementById('section-direct');
-    const driveSection = document.getElementById('section-drive');
-    const ytSection = document.getElementById('section-youtube');
+    const sections = {
+        direct: document.getElementById('section-direct'),
+        drive: document.getElementById('section-drive'),
+        youtube: document.getElementById('section-youtube')
+    };
+    const activeSection = document.getElementById('activeDownloadsSection');
     const breadcrumb = document.getElementById('breadcrumbCurrent');
     
-    document.querySelectorAll('.sidebar-nav .nav-link').forEach(el => {
-        el.classList.remove('active');
-    });
-    if (!navElement) {
-        if(viewName === 'dashboard') navElement = document.querySelector('a[onclick*="dashboard"]');
-        if(viewName === 'direct') navElement = document.querySelector('a[onclick*="direct"]');
-        if(viewName === 'drive') navElement = document.querySelector('a[onclick*="drive"]');
-        if(viewName === 'youtube') navElement = document.querySelector('a[onclick*="youtube"]');
-    }
-    if(navElement) navElement.classList.add('active');
+    // 1. Update active states in Sidebar
+    document.querySelectorAll('.sidebar-nav .nav-link').forEach(el => el.classList.remove('active'));
+    if (navElement) navElement.classList.add('active');
 
-    let newPath = "/";
-    if (viewName === 'direct') newPath = "/direct";
-    else if (viewName === 'drive') newPath = "/drive";
-    else if (viewName === 'youtube') newPath = "/youtube";
-    
-    if (window.location.pathname !== newPath) {
-        window.history.pushState({ view: viewName }, "", newPath);
-    }
-
-    [directSection, driveSection, ytSection].forEach(el => {
-        if(el) el.classList.remove('d-none', 'col-12', 'col-lg-6', 'mt-3', 'mt-lg-0');
+    // 2. Reset all sections: Hide them and clear layout classes
+    Object.values(sections).forEach(el => {
+        if (el) {
+            el.classList.add('d-none'); // Hide section
+            el.classList.remove('col-12', 'col-lg-6', 'mt-3', 'mt-lg-0'); // Clear layout
+        }
     });
 
+    // 3. Apply Specific Layout Logic
     if (viewName === 'dashboard') {
-        directSection.classList.add('col-lg-6');
-        driveSection.classList.add('col-lg-6', 'mt-3', 'mt-lg-0');
-        if(ytSection) ytSection.classList.add('d-none');
-        if(breadcrumb) breadcrumb.innerText = 'Dashboard';
-    } 
-    else if (viewName === 'direct') {
-        driveSection.classList.add('d-none');
-        if(ytSection) ytSection.classList.add('d-none');
-        directSection.classList.add('col-12');
-        if(breadcrumb) breadcrumb.innerText = 'Direct URL Downloader';
-    } 
-    else if (viewName === 'drive') {
-        directSection.classList.add('d-none');
-        if(ytSection) ytSection.classList.add('d-none');
-        driveSection.classList.add('col-12');
-        if(breadcrumb) breadcrumb.innerText = 'Google Drive Link Generator';
+        // Show both Direct and Drive side-by-side
+        sections.direct.classList.remove('d-none');
+        sections.direct.classList.add('col-lg-6');
+        
+        sections.drive.classList.remove('d-none');
+        sections.drive.classList.add('col-lg-6', 'mt-3', 'mt-lg-0');
+        
+        // Always show Active Downloads on Dashboard if there are downloads
+        if (activeDownloadCount > 0) showActiveDownloads();
+        
+        if (breadcrumb) breadcrumb.innerText = 'Dashboard';
+    } else {
+        // Show only the selected section at full width
+        const target = sections[viewName];
+        if (target) {
+            target.classList.remove('d-none');
+            target.classList.add('col-12');
+            
+            // FIXED: Hide active downloads when entering a specific tool view
+            // It will reappear automatically via updateDownloadUI when a download/upload starts
+            hideActiveDownloads();
+
+            if (breadcrumb) {
+                breadcrumb.innerText = viewName.charAt(0).toUpperCase() + 
+                                     viewName.slice(1) + ' Downloader';
+            }
+        }
     }
-    else if (viewName === 'youtube') { 
-        directSection.classList.add('d-none');
-        driveSection.classList.add('d-none');
-        if(ytSection) ytSection.classList.add('col-12');
-        if(breadcrumb) breadcrumb.innerText = 'YouTube Downloader';
+
+    // 4. Handle Mobile Sidebar Auto-close
+    const sidebar = document.getElementById('sidebarMenu');
+    if (sidebar && window.innerWidth < 768) {
+        const bsOffcanvas = bootstrap.Offcanvas.getInstance(sidebar);
+        if (bsOffcanvas) bsOffcanvas.hide();
+    }
+}
+
+
+
+window.addEventListener('popstate', (event) => {
+    if (event.state && event.state.view) {
+        switchView(event.state.view, null); 
+    } else {
+        const path = window.location.pathname;
+        if(path.includes('direct')) switchView('direct', null);
+        else if(path.includes('drive')) switchView('drive', null);
+        else if(path.includes('youtube')) switchView('youtube', null);
+        else switchView('dashboard', null);
+    }
+});
+
+function hideActiveDownloads() {
+    document.getElementById('activeDownloadsSection')?.classList.add('d-none');
+}
+
+function showActiveDownloads() {
+    document.getElementById('activeDownloadsSection')?.classList.remove('d-none');
+}
+nnerText = 'YouTube Downloader';
     }
 
     const sidebar = document.getElementById('sidebarMenu');

@@ -36,11 +36,6 @@ body {
     box-shadow: inset -1px 0 0 rgba(255, 255, 255, .1);
 }
 
-
-[data-bs-theme="dark"] .sidebar {
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, .1);
-}
-
 @media (max-width: 767.98px) {
       .sidebar {
         /* Mobile: Use fixed position for Offcanvas */
@@ -746,4 +741,27 @@ input[type=range] {
     background-color: rgba(0, 0, 0, 0.7); 
     color: white; 
     font-family: sans-serif; 
+}
+
+/* --- YouTube Loading Bar --- */
+.yt-thin-progress {
+    height: 4px;
+    width: 100%;
+    background-color: var(--bs-secondary-bg);
+    overflow: hidden;
+    position: relative;
+    border-radius: 2px;
+}
+
+.yt-line {
+    width: 40%;
+    height: 100%;
+    background: var(--bs-danger);
+    position: absolute;
+    animation: ytmove 1.5s infinite linear;
+}
+
+@keyframes ytmove {
+    0% { left: -40%; }
+    100% { left: 100%; }
 }
